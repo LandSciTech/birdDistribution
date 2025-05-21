@@ -6,7 +6,7 @@ library(rgee)
 # initialize rgee
 # Use this to save a token, doesn't need to be repeated every time
 # ee$Authenticate(auth_mode='notebook')
-ee$Initialize(project='ee-sarahendicott-eccc')  # <-- EDIT THIS FOR YOUR PROJECT
+ee$Initialize(project = "ee-sarahendicott-eccc") # <-- EDIT THIS FOR YOUR PROJECT
 
 # Optionally
 # make a request to verify you are connected.
@@ -40,17 +40,20 @@ googledrive::drive_auth(email = "sarah.endicott@canada.ca")
 
 var_list_pth <- file.path(tempdir(), "NationalModels_V5_VariableList.xlsx")
 googledrive::drive_download("https://docs.google.com/spreadsheets/d/1XATuq8BOYC2KkbJObaturaf4NFD2ufvn",
-                            path = var_list_pth, overwrite = TRUE)
+  path = var_list_pth, overwrite = TRUE
+)
 
 BAM_var_list <- readxl::read_xlsx(var_list_pth,
-                                  sheet = "ExtractionLookup")
+  sheet = "ExtractionLookup"
+)
 
 var_list_csv_pth <- file.path(tempdir(), "NationalModels_V5_VariableList.csv")
 
 BAM_var_list %>%
   # Not currently working for some US and Alaska data
   filter(Extent %in% c("Canada", "global")) %>%
-  group_by(Source, TemporalResolution) %>% slice(1) %>%
+  group_by(Source, TemporalResolution) %>%
+  slice(1) %>%
   mutate(Complete = 0) %>%
   write.csv(file = var_list_csv_pth, row.names = FALSE)
 
@@ -60,11 +63,13 @@ test_that("Data can download", {
   tictoc::tic()
   # Function uses GEE and the BAM variables list to extract BAM variables that are
   # available from GEE including for year matched time series variables
-  gee_points_extract(meth_path = var_list_csv_pth,
-                     loc.yr = visit_yr %>% group_by(year) %>% slice(1),
-                     out_save = out_dir,
-                     gd_dl_dir = file.path(tempdir(), "test_gd_dl"),
-                     do.test.run = FALSE)
+  gee_points_extract(
+    meth_path = var_list_csv_pth,
+    loc.yr = visit_yr %>% group_by(year) %>% slice(1),
+    out_save = out_dir,
+    gd_dl_dir = file.path(tempdir(), "test_gd_dl"),
+    do.test.run = FALSE
+  )
 
   tictoc::toc()
 

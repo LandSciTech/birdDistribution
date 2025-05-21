@@ -19,5 +19,3 @@ NULL
 #   rowwise() %>%
 #   mutate(funs = list(funspotr::spot_funs_custom(pkgs = funspotr::spot_pkgs_from_description(DESCRIPTION_path = "DESCRIPTION"),
 #                                            file_path = relative_paths)))
-
-
