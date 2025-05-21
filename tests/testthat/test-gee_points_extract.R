@@ -1,6 +1,4 @@
 skip_if_not(interactive(), message = "gee tests need to be run interactively")
-library(tidyverse)
-library(data.table)
 library(rgee)
 
 # initialize rgee

@@ -111,7 +111,7 @@ gee_points_extract <- function(
       loc.gee.i <- loc.gee.i %>%
         select(id) %>%
         group_by(row_number() %/% n) %>%
-        group_map(~.x)
+        dplyr::group_map(~.x)
 
 
       gee.data.static <- data.frame()
@@ -494,6 +494,7 @@ gee_points_extract <- function(
     )
 
     write.csv(meth, file = meth_path, row.names = FALSE)
+
   } else {
     message("All Google Drive variables have already been completed")
   }

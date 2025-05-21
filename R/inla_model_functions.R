@@ -619,9 +619,9 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
 #' @examples
 do_res_plot <- function(pred_rast, title, subtitle, subsubtitle = "", samp_grid, bcr_poly,
                         col_pal_fn, species_label, levs_nm, file_nm) {
-  res_plot <- ggplot() +
+  res_plot <- ggplot2::ggplot() +
     stars::geom_stars(data = pred_rast, na.rm = TRUE) +
-    scale_fill_manual(
+    ggplot2::scale_fill_manual(
       name = paste0(
         "<span style='font-size:13pt'>", title,
         "</span><br><span style='font-size:7pt'>", subtitle,
@@ -633,37 +633,39 @@ do_res_plot <- function(pred_rast, title, subtitle, subsubtitle = "", samp_grid,
     ) +
 
     # BCR boundaries
-    geom_sf(data = bcr_poly, fill = "transparent", col = "gray20", linewidth = 0.5) +
+    ggplot2::geom_sf(data = bcr_poly, fill = "transparent", col = "gray20", linewidth = 0.5) +
 
     # Point count detections and surveyed squares
-    geom_sf(
+    ggplot2::geom_sf(
       data = subset(samp_grid, !is.na(PC_detected)),
-      aes(col = as.factor(PC_detected)), size = 0.5, stroke = 0, shape = 16
+      ggplot2::aes(col = as.factor(PC_detected)), size = 0.5, stroke = 0, shape = 16
     ) +
-    scale_colour_discrete(type = c("gray70", "black"), guide = NULL) +
-    theme(
-      panel.background = element_blank(),
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank()
+    ggplot2::scale_colour_discrete(type = c("gray70", "black"), guide = NULL) +
+    ggplot2::theme(
+      panel.background = ggplot2::element_blank(),
+      panel.grid.major = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank()
     ) +
-    theme(axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-    theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
-    theme(plot.margin = unit(c(0, 0, 0, 0), "cm")) +
-    theme(
-      legend.margin = margin(0, 0, 0, 0),
-      legend.box.margin = margin(5, 10, 5, -20),
+    ggplot2::theme(axis.title.x = ggplot2::element_blank(), axis.text.x = ggplot2::element_blank(),
+          axis.ticks.x = ggplot2::element_blank()) +
+    ggplot2::theme(axis.title.y = ggplot2::element_blank(), axis.text.y = ggplot2::element_blank(),
+          axis.ticks.y = ggplot2::element_blank()) +
+    ggplot2::theme(plot.margin = ggplot2::unit(c(0, 0, 0, 0), "cm")) +
+    ggplot2::theme(
+      legend.margin = ggplot2::margin(0, 0, 0, 0),
+      legend.box.margin = ggplot2::margin(5, 10, 5, -20),
       legend.title.align = 0.5,
       legend.title = ggtext::element_markdown(lineheight = .9, hjust = 1),
       legend.justification = c(1, 1),
       legend.position = "inside",
       legend.position.inside = c(0.99, 0.95)
     ) +
-    theme(legend.key = element_rect(fill = "transparent", colour = "transparent")) +
-    annotate(geom = "text", x = 1700000, y = 1930000, label = paste0(species_label), lineheight = .85, hjust = 0, size = 6, fontface = 2) +
-    annotate(geom = "text", x = 2155000, y = 530000, label = paste0("Prepared on ", Sys.Date()), size = 2, lineheight = .75, hjust = 0, color = "gray60") +
-    guides(
-      fill = guide_legend(order = 1),
-      size = guide_legend(order = 2)
+    ggplot2::theme(legend.key = ggplot2::element_rect(fill = "transparent", colour = "transparent")) +
+    ggplot2::annotate(geom = "text", x = 1700000, y = 1930000, label = paste0(species_label), lineheight = .85, hjust = 0, size = 6, fontface = 2) +
+    ggplot2::annotate(geom = "text", x = 2155000, y = 530000, label = paste0("Prepared on ", Sys.Date()), size = 2, lineheight = .75, hjust = 0, color = "gray60") +
+    ggplot2::guides(
+      fill = ggplot2::guide_legend(order = 1),
+      size = ggplot2::guide_legend(order = 2)
     )
 
   png(file_nm, width = 10, height = 6.5, units = "in", res = 1000, type = "cairo")

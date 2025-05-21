@@ -20,6 +20,8 @@ data frame with distance_from_range column added
 Distance will be zero inside the species' range.
 }
 \examples{
-surv_pt <- test_dat$all_surveys \%>\% slice(1) \%>\% select(Survey_Type, Survey_Duration_Minutes)
+surv_pt <- test_dat$all_surveys \%>\%
+  slice(1) \%>\%
+  select(Survey_Type, Survey_Duration_Minutes)
 get_dist_to_range(surv_pt, "WTSP", test_dat$species_ranges)
 }

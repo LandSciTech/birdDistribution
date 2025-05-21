@@ -4,7 +4,7 @@
 \alias{gd_dl_file}
 \title{Download file from Google Drive}
 \usage{
-gd_dl_file(gd_folder, gd_file, gd_dl_dir)
+gd_dl_file(gd_folder, gd_file, gd_dl_dir, rast_name = "")
 }
 \arguments{
 \item{gd_folder}{Folder on Google Drive within the BAM CovariateRasters folder}

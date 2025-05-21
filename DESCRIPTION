@@ -1,10 +1,10 @@
 Package: birdDistribution
 Title: Model Bird Distributions 
 Version: 0.0.0.9000
-Authors@R: 
+Authors@R: c(
     person("Sarah", "Endicott", , "sarah.endicott@canada.ca", role = c("aut", "cre"),
-           comment = c(ORCID = "0000-0001-9644-5343"))
-    person("David", "Isles", email = "david.isles@ec.gc.ca", role = c("aut", "cre"))
+           comment = c(ORCID = "0000-0001-9644-5343")),
+    person("David", "Isles", email = "david.isles@ec.gc.ca", role = c("aut", "cre")))
 Description: Build bird distribution and abundance models in R. The package 
     currently uses INLA to build Bayesian models of bird distribution and 
     abundance in Canada. This is a work in progress

@@ -1,5 +1,3 @@
-library(tidyverse)
-
 # get test data set
 test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
 
@@ -46,6 +44,8 @@ test_that("overall flow works", {
     save_mod = FALSE
   )
 
+  expect_s3_class(mod, "bru")
+
   pred <- predict_inla(
     dat = test_dat$ONGrid,
     analysis_data = test_dat,
@@ -54,6 +54,8 @@ test_that("overall flow works", {
     covariates = cov_df,
     do_crps = FALSE
   )
+
+  expect_s3_class(pred, "data.frame")
 
   dir_use <- tempdir()
   map_inla_preds(
@@ -66,7 +68,10 @@ test_that("overall flow works", {
     bcr_poly = bcr_poly,
     map_dir = dir_use
   )
+
+  out_maps <- list.files(dir_use, pattern = "png$", full.names = TRUE)
+  expect_gt(length(out_maps), 1)
   if (interactive()) {
-    list.files(dir_use, pattern = "png$", full.names = TRUE) %>% walk(shell.exec)
+     out_maps %>% walk(shell.exec)
   }
 })

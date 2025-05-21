@@ -20,10 +20,10 @@ ee_extract <- function(x, y, fun = ee$Reducer$mean(), scale = NULL, sf = FALSE,
   }
   if (any("sf" %in% class(y))) {
     sf_y <- y
-    ee_y <- sf_as_ee(y[[attr(y, "sf_column")]], quiet = TRUE)
+    ee_y <- rgee::sf_as_ee(y[[attr(y, "sf_column")]], quiet = TRUE)
   } else if (any("sfc" %in% class(y))) {
     sf_y <- sf::st_sf(id = seq_along(y), geometry = y)
-    ee_y <- sf_as_ee(y, quiet = TRUE)
+    ee_y <- rgee::sf_as_ee(y, quiet = TRUE)
   } else if (any(ee_get_spatial_objects("Table") %in% class(y))) {
     ee_y <- ee$FeatureCollection(y)
     sf_y <- tryCatch(
@@ -115,7 +115,7 @@ ee_extract <- function(x, y, fun = ee$Reducer$mean(), scale = NULL, sf = FALSE,
   } else {
     table_geojson <- table %>%
       ee$FeatureCollection$getInfo() %>%
-      ee_utils_py_to_r()
+      rgee::ee_utils_py_to_r()
     class(table_geojson) <- "geo_list"
     table_sf <- geojsonio::geojson_sf(table_geojson)
     sf::st_geometry(table_sf) <- NULL

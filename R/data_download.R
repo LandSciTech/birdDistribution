@@ -11,7 +11,7 @@ wt_dl_loc_year <- function(proj_id, sens_id) {
   rec_id <- ifelse(sens_id == "ARU", "recording", "point_count")
   date_col <- ifelse(sens_id == "ARU", "recording_date_time", "survey_date")
 
-  loc <- wt_download_report(
+  loc <- wildrtrax::wt_download_report(
     project_id = proj_id, sensor_id = sens_id,
     reports = c("location"), weather_cols = FALSE
   )
@@ -28,7 +28,7 @@ wt_dl_loc_year <- function(proj_id, sens_id) {
     project_id = proj_id, sensor_id = sens_id,
     reports = c(rec_id), weather_cols = FALSE
   ) %>%
-    mutate(year = as.numeric(year(.data[[date_col]]))) %>%
+    mutate(year = as.numeric(lubridate::year(.data[[date_col]]))) %>%
     select(project_id, location_id, year) %>%
     unique()
 
