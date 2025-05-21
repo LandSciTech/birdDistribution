@@ -75,3 +75,35 @@ test_that("overall flow works", {
      out_maps %>% walk(shell.exec)
   }
 })
+
+test_that("crossvalidation flow works", {
+  # Ensure that Obs_Index works as needed
+  test_dat$all_surveys <- test_dat$all_surveys %>% mutate(Obs_Index = 1:n())
+
+  # train on old data
+  mod <- fit_inla(
+    sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+    analysis_data = test_dat,
+    proj_use = AEA_proj,
+    study_poly = test_area,
+    covariates = cov_df,
+    mod_dir = tempdir(),
+    save_mod = FALSE,
+    train_dat_filter = "Date_Time < lubridate::ymd('2010-05-01')"
+  )
+  # Predict on new data
+  pred <- predict_inla(
+    dat = test_dat$all_surveys %>% filter(Date_Time >= lubridate::ymd('2010-05-01')),
+    analysis_data = test_dat,
+    mod = mod,
+    sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+    covariates = cov_df,
+    do_crps = TRUE
+  )
+
+  eval <- evaluate_preds(pred %>% mutate(Crossval_Fold = 1), mod,
+                         sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+                         test_dat)
+
+  expect_s3_class(eval, "data.frame")
+})
