@@ -1,38 +1,54 @@
 # functions for inla model workflow
 
 
-#' Get distance from point to ebird range boundary
+#' Get distance from point to ebird range
+#'
+#' Distance will be zero inside the species' range.
 #'
 #' @param sp_dat combined species count and survey data
 #' @param sp_code species four letter code
-#' @param analysis_data analysis data package (a list), includes ebird range data
+#' @param species_ranges A list containing ebird range data named by species code
 #'
-#' @returns
+#' @returns data frame with distance_from_range column added
 #' @export
 #'
 #' @examples
+#' surv_pt <- test_dat$all_surveys %>% slice(1) %>% select(Survey_Type, Survey_Duration_Minutes)
+#' get_dist_to_range(surv_pt, "WTSP", test_dat$species_ranges)
 get_dist_to_range <- function(sp_dat, sp_code, species_ranges){
   # Extract ebird range for this species (if it exists)
 
   if (sp_code %in% names(species_ranges)){
 
-    range <- species_ranges[[sp_code]] %>% st_transform(st_crs(sp_dat))
+    range <- species_ranges[[sp_code]] %>% sf::st_transform(sf::st_crs(sp_dat))
 
-    if(any(st_geometry_type(sp_dat) == "POLYGON" |
-       st_geometry_type(sp_dat) == "MULTIPOLYGON")){
-      start_pt <- st_centroid(sp_dat)
+    if(any(sf::st_geometry_type(sp_dat) == "POLYGON" |
+       sf::st_geometry_type(sp_dat) == "MULTIPOLYGON")){
+      start_pt <- sf::st_centroid(sp_dat)
     } else {
       start_pt <- sp_dat
     }
 
     # Identify distance of each survey to the edge of species range (in km)
-    sp_dat$distance_from_range <- ((st_distance(start_pt, range)) %>% as.numeric())/1000
+    sp_dat$distance_from_range <- ((sf::st_distance(start_pt, range)) %>% as.numeric())/1000
   } else{
     sp_dat$distance_from_range <- 0
   }
   sp_dat
 }
 
+#' Get QPAD Offsets
+#'
+#' Use a pre-generated table of EDR and cue rate from QPAD to calculate offsets
+#'
+#' @param sp_dat combined species count and survey data
+#' @param sp_code species four letter code
+#' @param offset_table data frame of offset data
+#'
+#' @returns
+#' @export
+#'
+#' @examples
 get_QPAD_offsets <- function(sp_dat, sp_code, offset_table){
   # ---
   # Generate QPAD offsets for each survey (assumes unlimited distance point counts)
@@ -64,48 +80,93 @@ get_QPAD_offsets <- function(sp_dat, sp_code, offset_table){
   sp_dat
 }
 
-prep_sp_dat <- function(analysis_data, proj_use, train_dat_filter,
+#' Combine survey and count data for a species, optionally filter the data used
+#'
+#' @param analysis_data list containing analysis data, including `full_count_matrix` and `all_surveys`
+#' @param sp_code species four letter code
+#' @param proj_use projection/coordinate reference system to use
+#' @param train_dat_filter a string that will be used to filter the input data, the default will not filter anything
+#' @param survey_types character vector of values in the `Survey_Type` column to keep
+#'
+#' @returns
+#'
+#' @examples
+prep_sp_dat <- function(analysis_data, sp_code, proj_use, train_dat_filter = "TRUE",
                         survey_types = c("Point_Count","ARU_SPT","ARU_SPM")){
   sp_dat <- analysis_data$all_surveys %>%
     mutate(count = analysis_data$full_count_matrix[,sp_code]) %>%
     # select types of data, could have multiple in one model
     subset(Survey_Type %in% survey_types) %>%
-    st_transform(proj_use) %>%
+    sf::st_transform(proj_use) %>%
     filter(!!rlang::parse_expr(train_dat_filter))
 
   sp_dat <- get_dist_to_range(sp_dat, sp_code, analysis_data$species_ranges)
 
-  sp_dat <- get_QPAD_offsets(sp_dat, sp_code, analysis_data)
+  sp_dat <- get_QPAD_offsets(sp_dat, sp_code, analysis_data$species_to_model)
 
   sp_dat
 }
-# ---
-# Create a spatial mesh, which is used to fit the residual spatial field
-# ---
+
+#' Create a spatial mesh, which is used to fit the residual spatial field
+#'
+#' @param poly sf polygon of area to make mesh in. Eg the study area
+#' @param proj_use projection/coordinate reference system to use. Note this
+#'  should have units of kms to avoid an extremely dense mesh
+#' @param max.edge The largest allowed triangle edge length. See [fmesher::fm_mesh_2d_inla()] for details
+#' @param cutoff The minimum allowed distance between points. See [fmesher::fm_mesh_2d_inla()] for details
+#'
+#' @returns
+#' @export
+#'
+#' @examples
 make_mesh <- function(poly, proj_use, max.edge = c(70000, 100000), cutoff = 30000){
   # make a two extension hulls and mesh for spatial model
-  hull <- fm_extensions(
+  hull <- fmesher::fm_extensions(
     poly,
     convex = c(50000, 200000),
     concave = c(350000, 500000)
   )
-  mesh_spatial <- fm_mesh_2d_inla(
+  mesh_spatial <- fmesher::fm_mesh_2d_inla(
     boundary = hull,
     max.edge = max.edge, # km inside and outside
     cutoff = cutoff,
-    crs = fm_crs(proj_use)
+    crs = fmesher::fm_crs(proj_use)
   ) # cutoff is min edge
   mesh_locs <- mesh_spatial$loc[,c(1,2)] %>% as.data.frame()
   message("Mesh created with ", dim(mesh_locs)[1], " vertices.")
 
   prior_range <- c(300000,0.1) # 10% chance range is smaller than 300000
   prior_sigma <- c(0.5,0.1) # 10% chance sd is larger than 0.5
-  inla.spde2.pcmatern(mesh_spatial,
-                      prior.range = prior_range,
-                      prior.sigma = prior_sigma)
+  INLA::inla.spde2.pcmatern(mesh_spatial,
+                            prior.range = prior_range,
+                            prior.sigma = prior_sigma)
 }
 
 
+#' Fit INLA model
+#'
+#' Fit a model of bird abundance using INLA
+#'
+#' @param sp_code species four letter code
+#' @param analysis_data list containing analysis data, including `full_count_matrix`,
+#'  `all_surveys`, `species_ranges`, and `species_to_model`
+#' @param proj_use projection/coordinate reference system to use. Note this
+#'  should have units of kms to avoid an extremely dense mesh
+#' @param study_poly sf polygon of study area polygon
+#' @param covariates a data frame with columns covariate, model, mean, prec, beta
+#'  which is used to define the model formula.
+#' @param mod_dir directory where the model object will be saved or loaded from
+#'  if it already exists
+#' @param train_dat_filter a string that will be used to filter the input data,
+#'  the default will not filter anything
+#' @param save_mod logical. Should the model object be saved?
+#' @param file_name_bit suffix attached to the file name eg to identify
+#'  cross-validation fold
+#'
+#' @returns An INLA object with the fit model
+#' @export
+#'
+#' @examples
 fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
                      mod_dir = "data/derived-data/INLA_results/models/",
                      train_dat_filter = "TRUE", save_mod = TRUE, file_name_bit = "all"){
@@ -124,7 +185,7 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
   }
 
   # Prepare data for this species
-  sp_dat <- prep_sp_dat(analysis_data, proj_use, train_dat_filter)
+  sp_dat <- prep_sp_dat(analysis_data, sp_code, proj_use, train_dat_filter)
 
   matern_coarse <- make_mesh(study_poly, proj_use)
 
@@ -136,10 +197,10 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
   sp_dat$Hours_Since_Sunrise <- as.numeric(sp_dat$Hours_Since_Sunrise)
   TSS_range <- range(sp_dat$Hours_Since_Sunrise)
   TSS_meshpoints <- seq(TSS_range[1]-0.1, TSS_range[2]+0.1, length.out = 11)
-  TSS_mesh1D = inla.mesh.1d(TSS_meshpoints, boundary="free")
-  TSS_spde = inla.spde2.pcmatern(TSS_mesh1D,
-                                 prior.range = c(6,0.1),
-                                 prior.sigma = c(1,0.1)) # 10% chance sd is larger than 1
+  TSS_mesh1D = INLA::inla.mesh.1d(TSS_meshpoints, boundary="free")
+  TSS_spde = INLA::inla.spde2.pcmatern(TSS_mesh1D,
+                                       prior.range = c(6,0.1),
+                                       prior.sigma = c(1,0.1)) # 10% chance sd is larger than 1
 
   # ---
   # Model formulas
@@ -174,11 +235,11 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
   start <- Sys.time()
   fit_INLA <- NULL
   while(is.null(fit_INLA)){
-    fit_INLA <- bru(components = model_components,
+    fit_INLA <- inlabru::bru(components = model_components,
 
-                    like(family = "nbinomial",
-                         formula = model_formula_PC,
-                         data = PC_sp),
+                             inlabru::like(family = "nbinomial",
+                                           formula = model_formula_PC,
+                                           data = PC_sp),
 
                     options = list(
                       control.compute = list(waic = FALSE, cpo = FALSE),
@@ -197,6 +258,27 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
   return(fit_INLA)
 }
 
+#' Use a fit INLA model to generate predictions
+#'
+#' Generate predictions from a predictor data set and a fitted INLA model.
+#' Predictions are summarised using the median, credible interval, and
+#' coefficient of variation. The Continuous Ranked Probability Score and the Log
+#' score are optionally calculated.
+#'
+#' @param dat data to make predictions from
+#' @param analysis_data list containing analysis data, including `full_count_matrix`,
+#'  `all_surveys`, `species_ranges`, and `species_to_model`
+#' @param mod fitted INLA model
+#' @param sp_code species four letter code
+#' @param covariates a data frame with columns covariate, model, mean, prec, beta
+#'  which is used to define the model formula.
+#' @param do_crps logical. Should the Continuous Ranked Probability Score and
+#'  the Log score be calculated from the raw predictions?
+#'
+#' @returns `dat` with columns added for predictions.
+#' @export
+#'
+#' @examples
 predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps = TRUE){
   dat <- get_dist_to_range(dat, sp_code, analysis_data$species_ranges)
 
@@ -218,7 +300,7 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
   # Predictions are on log scale, and do not include variance components
   start2 <- Sys.time()
   pred <- NULL
-  pred <- generate(mod,
+  pred <- inlabru::generate(mod,
                    as(dat,'Spatial'),
                    formula =  mod_form,
                    n.samples = 1000)
@@ -233,10 +315,15 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
   dat$pred_CI_width_90 <- prediction_quantiles[3,] - prediction_quantiles[1,]
   dat$CV <- apply(pred,1,function(x) sd(x,na.rm = TRUE)/mean(x,na.rm = TRUE))
   if(do_crps){
-    # CRPS requires comparison to observed value, needs full sample for prediction
-    dat$obs_count <- analysis_data$full_count_matrix[dat$Obs_Index, sp_code]
-    dat$crps <- scoringRules::crps_sample(dat$obs_count, pred)
-    dat$logs <- scoringRules::logs_sample(dat$obs_count, pred)
+    if(is.null(dat$Obs_Index)){
+      warning("dat does not contain a column Obs_Index so dat cannot be ",
+              "connected to full_count_matrix and crps cannot be calculated")
+    } else {
+      # CRPS requires comparison to observed value, needs full sample for prediction
+      dat$obs_count <- analysis_data$full_count_matrix[dat$Obs_Index, sp_code]
+      dat$crps <- scoringRules::crps_sample(dat$obs_count, pred)
+      dat$logs <- scoringRules::logs_sample(dat$obs_count, pred)
+    }
   }
 
 
@@ -254,11 +341,32 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
   return(dat %>% mutate(species = sp_code))
 }
 
-map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_squares,
+#' Make maps of INLA model predictions
+#'
+#' Makes several maps from different prediction outputs
+#'
+#' @param sp_code species four letter code
+#' @param analysis_data list containing analysis data, including `full_count_matrix`,
+#'  `all_surveys`, `species_ranges`, and `species_to_model`
+#' @param preds data frame of predictions
+#' @param proj_use projection/coordinate reference system to use.
+#' @param atlas_squares grid of squares to show predictions and observations in.
+#' @param bcr_poly polygon of BCR boundaries to use in map.
+#' @param map_dir directory where the map images should be saved
+#' @param train_dat_filter a string that will be used to filter the input data,
+#'  the default will not filter anything
+#' @param file_name_bit suffix attached to the file name eg to identify
+#'  cross-validation fold
+#'
+#' @returns
+#' @export
+#'
+#' @examples
+map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_squares, bcr_poly, study_poly,
                            map_dir = "data/derived-data/INLA_results/maps/",
                            train_dat_filter = "TRUE", file_name_bit = "all"){
-  map_file <- paste0(map_dir, sp_code,"_",
-                     file_name_bit, "_q50.png")
+  map_file <- file.path(map_dir, paste0(sp_code,"_",
+                     file_name_bit, "_q50.png"))
 
   if(!dir.exists(map_dir)){
     dir.create(map_dir)
@@ -266,12 +374,11 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
 
 
   # Prepare data for this species
-  sp_dat <- prep_sp_dat(analysis_data, proj_use, train_dat_filter)
+  sp_dat <- prep_sp_dat(analysis_data, sp_code, proj_use, train_dat_filter)
 
   # Summarize atlas_squares where species was detected
   PC_detected <- sp_dat %>%
-    subset(Survey_Type %in% c("Point_Count","ARU_SPT","ARU_SPM")) %>%
-    st_intersection(atlas_squares)%>%
+    sf::st_intersection(atlas_squares)%>%
     as.data.frame() %>%
     group_by(sq_id) %>%
     summarize(PC_detected = as.numeric(sum(count)>0),
@@ -288,7 +395,7 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
     relocate(geometry,.after = last_col()) %>%
     left_join(PC_detected, by = join_by(sq_id)) #%>% left_join(CL_detected)
 
-  atlas_squares_centroids <- st_centroid(atlas_squares_species)
+  atlas_squares_centroids <- sf::st_centroid(atlas_squares_species)
 
   # Label for figure and ebird range limit
 
@@ -300,8 +407,8 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
   range <- NA
   if (sp_code %in% names(analysis_data$species_ranges)){
     range <- analysis_data$species_ranges[[sp_code]]  %>%
-      st_transform(st_crs(Study_Area_bound)) %>%
-      st_intersection(Study_Area_bound)
+      sf::st_transform(sf::st_crs(study_poly)) %>%
+      sf::st_intersection(study_poly)
   }
 
   # Plot median prediction
@@ -314,6 +421,10 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
   upper_bound <- quantile(preds$pred_q50,0.99,na.rm = TRUE) %>% signif(2)
   if (lower_bound >= (upper_bound/5)) lower_bound <- (upper_bound/5) %>% signif(2)
 
+  target_raster <- terra::rast(resolution = 10, crs = proj_use,
+                               extent = terra::ext(study_poly %>% terra::vect()),
+                               vals = 1)
+
   sp_cut <- cut.fn(df = preds,
                    target_raster = target_raster,
                    column_name = "pred_q50",
@@ -325,7 +436,7 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
   # Median of posterior
   plot_q50 <- do_res_plot(raster_q50, "Relative Abundance",
                           "Per 5-minute point count", "(Posterior Median)",
-                          atlas_squares_centroids,
+                          atlas_squares_centroids, bcr_poly,
                           colpal_relabund, species_label,
                           "levs",
                           map_file)
@@ -347,7 +458,7 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
 
   plot_CI_width_90 <- do_res_plot(raster_CI_width_90, "Relative Uncertainty",
                                   "Per 5-minute point count", "Width of 90% CI",
-                                  atlas_squares_centroids,
+                                  atlas_squares_centroids,  bcr_poly,
                                   colpal_uncertainty, species_label,
                                   "levs",
                                   map_file %>% str_replace("_q50", "_CI_width_90"))
@@ -371,7 +482,8 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
                                    nx = dim(raster_q50)[1],ny = dim(raster_q50)[2])
 
   plot_CV <- do_res_plot(raster_CV, "Coef. of Variation",
-                         "Per 5-minute point count", "", atlas_squares_centroids,
+                         "Per 5-minute point count", "",
+                         atlas_squares_centroids, bcr_poly,
                          colpal_uncertainty, species_label,
                          "CV_levs",
                          map_file %>% str_replace("_q50", "_CV"))
@@ -396,7 +508,8 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
 
   plot_pObs <- do_res_plot(raster_pObs, "Prob. of Observation",
                            "Per 5-minute point count",
-                           "(Posterior Median)", atlas_squares_centroids,
+                           "(Posterior Median)",
+                           atlas_squares_centroids, bcr_poly,
                            colpal_pObs, species_label,
                            "pObs_levs",
                            map_file %>% str_replace("_q50", "_PObs"))
@@ -429,15 +542,29 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
 
     # Median of posterior
     plot_dens <- do_res_plot(raster_dens, "Density", "Males per hectare",
-                             "(Posterior Median)", atlas_squares_centroids,
+                             "(Posterior Median)",
+                             atlas_squares_centroids, bcr_poly,
                              colpal_relabund, species_label, "levs",
                              map_file %>% str_replace("_q50", "_density"))
   }
 }
 
-# Plot INLA results maps
-
-do_res_plot <- function(pred_rast, title, subtitle, subsubtitle = "", samp_grid,
+#' Build INLA prediction map
+#'
+#' @param pred_rast Raster of predictions
+#' @param title map title describing the metric shown
+#' @param subtitle subtitle under title with more details
+#' @param subsubtitle subtitle under subtitle eg with units or further description
+#' @param samp_grid Points in sampling grid where species was or wasn't detected
+#' @param col_pal_fn function to create colour palette
+#' @param species_label species name which will be added to the map
+#' @param levs_nm name of levels of colour ramp
+#' @param file_nm file name where map should be saved
+#'
+#' @returns saves the map to `file_nm`
+#'
+#' @examples
+do_res_plot <- function(pred_rast, title, subtitle, subsubtitle = "", samp_grid, bcr_poly,
                         col_pal_fn, species_label, levs_nm, file_nm){
   res_plot <- ggplot() +
 
@@ -450,7 +577,7 @@ do_res_plot <- function(pred_rast, title, subtitle, subsubtitle = "", samp_grid,
                       drop = FALSE, na.translate = FALSE)+
 
     # BCR boundaries
-    geom_sf(data = BCR_PROV, fill = "transparent", col = "gray20", linewidth = 0.5)+
+    geom_sf(data = bcr_poly, fill = "transparent", col = "gray20", linewidth = 0.5)+
 
     # Point count detections and surveyed squares
     geom_sf(data = subset(samp_grid, !is.na(PC_detected)),
@@ -466,7 +593,7 @@ do_res_plot <- function(pred_rast, title, subtitle, subsubtitle = "", samp_grid,
     theme(legend.margin=margin(0,0,0,0),
           legend.box.margin=margin(5,10,5,-20),
           legend.title.align=0.5,
-          legend.title = element_markdown(lineheight=.9,hjust = 1),
+          legend.title = ggtext::element_markdown(lineheight=.9,hjust = 1),
           legend.justification = c(1,1),
           legend.position = "inside",
           legend.position.inside = c(0.99,0.95))+

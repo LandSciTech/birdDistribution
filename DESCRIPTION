@@ -14,3 +14,34 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
 URL: https://github.com/LandSciTech/birdDistribution
 BugReports: https://github.com/LandSciTech/birdDistribution/issues
+Suggests: 
+    lubridate,
+    readxl,
+    rgee,
+    testthat (>= 3.0.0),
+    tictoc,
+    tidyverse,
+    units
+Config/testthat/edition: 3
+Imports: 
+    beepr,
+    data.table,
+    dismo,
+    dplyr,
+    exactextractr,
+    fmesher,
+    future,
+    geojsonio,
+    ggtext,
+    googledrive,
+    INLA,
+    inlabru,
+    pROC,
+    purrr,
+    rlang,
+    scoringRules,
+    sf,
+    stars,
+    stringr,
+    terra,
+    wildrtrax
