@@ -95,13 +95,15 @@ get_QPAD_offsets <- function(sp_dat, sp_code, offset_table) {
 
 #' Combine survey and count data for a species, optionally filter the data used
 #'
+#' Also gets distance to range and QPAD offsets
+#'
 #' @param analysis_data list containing analysis data, including `full_count_matrix` and `all_surveys`
 #' @param sp_code species four letter code
 #' @param proj_use projection/coordinate reference system to use
 #' @param train_dat_filter a string that will be used to filter the input data, the default will not filter anything
 #' @param survey_types character vector of values in the `Survey_Type` column to keep
 #'
-#' @returns
+#' @returns data frame of combined data
 #'
 #' @examples
 #' # get test data set
@@ -445,7 +447,7 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
 #' @param file_name_bit suffix attached to the file name eg to identify
 #'  cross-validation fold
 #'
-#' @returns
+#' @returns Saves maps to output `map_dir`
 #' @export
 #'
 #' @examples
@@ -559,7 +561,7 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
     vals = 1
   )
 
-  sp_cut <- cut.fn(
+  sp_cut <- cut_fn(
     df = preds,
     target_raster = target_raster,
     column_name = "pred_q50",
@@ -588,7 +590,7 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
   upper_bound <- quantile(preds$pred_CI_width_90, 0.99, na.rm = TRUE) %>% signif(2)
   if (lower_bound >= (upper_bound / 5)) lower_bound <- (upper_bound / 5) %>% signif(2)
 
-  raster_CI_width_90 <- cut.fn(
+  raster_CI_width_90 <- cut_fn(
     df = preds,
     target_raster = target_raster,
     column_name = "pred_CI_width_90",
@@ -689,7 +691,7 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
     upper_bound <- quantile(preds$density_per_ha_q50, 0.99, na.rm = TRUE) %>% signif(2)
     if (lower_bound >= (upper_bound / 5)) lower_bound <- (upper_bound / 5) %>% signif(2)
 
-    sp_cut <- cut.fn(
+    sp_cut <- cut_fn(
       df = preds,
       target_raster = target_raster,
       column_name = "density_per_ha_q50",
@@ -717,6 +719,7 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
 #' @param subtitle subtitle under title with more details
 #' @param subsubtitle subtitle under subtitle eg with units or further description
 #' @param samp_grid Points in sampling grid where species was or wasn't detected
+#' @param bcr_poly sf polygon for BCR to be added to plot
 #' @param col_pal_fn function to create colour palette
 #' @param species_label species name which will be added to the map
 #' @param levs_nm name of levels of colour ramp
@@ -790,7 +793,7 @@ do_res_plot <- function(pred_rast, title, subtitle, subsubtitle = "", samp_grid,
 #' @param column_name column in `df` to rasterize
 #' @param lower_bound,upper_bound upper and lower bounds for labels
 
-cut.fn <- function(df = NA,
+cut_fn <- function(df = NA,
                    target_raster = NA,
                    column_name = NA,
                    lower_bound = NA,

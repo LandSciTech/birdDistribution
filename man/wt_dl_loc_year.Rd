@@ -11,6 +11,9 @@ wt_dl_loc_year(proj_id, sens_id)
 
 \item{sens_id}{type of sensor, either "ARU", "CAM, or "PC"}
 }
+\value{
+data frame of locations and years
+}
 \description{
 Download location and year information from WildTrax
 }

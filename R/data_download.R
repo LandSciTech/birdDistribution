@@ -3,10 +3,9 @@
 #' @param proj_id project_id in wildTrax
 #' @param sens_id type of sensor, either "ARU", "CAM, or "PC"
 #'
-#' @return
+#' @return data frame of locations and years
 #' @export
 #'
-#' @examples
 wt_dl_loc_year <- function(proj_id, sens_id) {
   rec_id <- ifelse(sens_id == "ARU", "recording", "point_count")
   date_col <- ifelse(sens_id == "ARU", "recording_date_time", "survey_date")

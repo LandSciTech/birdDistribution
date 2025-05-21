@@ -28,6 +28,8 @@ do_res_plot(
 
 \item{samp_grid}{Points in sampling grid where species was or wasn't detected}
 
+\item{bcr_poly}{sf polygon for BCR to be added to plot}
+
 \item{col_pal_fn}{function to create colour palette}
 
 \item{species_label}{species name which will be added to the map}

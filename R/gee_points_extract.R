@@ -512,9 +512,7 @@ gee_points_extract <- function(
 #' @param gd_dl_dir Local directory where the files should be downloaded to.
 #'
 #' @returns The local file path or a list of paths if `gd_file` is a folder.
-#' @export
 #'
-#' @examples
 gd_dl_file <- function(gd_folder, gd_file, gd_dl_dir, rast_name = "") {
   file_path <- file.path(gd_dl_dir, gd_file)
   if (dir.exists(file_path)) {

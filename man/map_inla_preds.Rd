@@ -41,6 +41,9 @@ the default will not filter anything}
 \item{file_name_bit}{suffix attached to the file name eg to identify
 cross-validation fold}
 }
+\value{
+Saves maps to output \code{map_dir}
+}
 \description{
 Makes several maps from different prediction outputs
 }

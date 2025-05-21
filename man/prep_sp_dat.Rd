@@ -23,8 +23,11 @@ prep_sp_dat(
 
 \item{survey_types}{character vector of values in the \code{Survey_Type} column to keep}
 }
+\value{
+data frame of combined data
+}
 \description{
-Combine survey and count data for a species, optionally filter the data used
+Also gets distance to range and QPAD offsets
 }
 \examples{
 # get test data set

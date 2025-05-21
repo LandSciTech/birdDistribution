@@ -44,6 +44,10 @@
 #' @importFrom stringr str_replace
 #' @importFrom stringr fixed
 #' @importFrom tidyr unnest
+#' @importFrom grDevices colorRampPalette dev.off png
+#' @importFrom methods as
+#' @importFrom stats as.formula cov dnbinom median quantile sd
+#' @importFrom utils hasName read.csv write.csv
 ## usethis namespace: end
 NULL
 

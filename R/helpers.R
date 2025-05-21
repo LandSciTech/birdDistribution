@@ -1,10 +1,12 @@
 #' Not in
 #' @export
+#' @noRd
 `%!in%` <- Negate(`%in%`)
 
 
 #' Fit boosted regression tree models
 #' Not currently in use...
+#' @noRd
 fit_brt <- function(model_data,
                     response_column = NA,
                     covariate_columns = NA) {

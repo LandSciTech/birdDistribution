@@ -5,6 +5,7 @@
 #' See [rgee::ee_extract()] for documentation
 #'
 #' @export
+#' @noRd
 ee_extract <- function(x, y, fun = ee$Reducer$mean(), scale = NULL, sf = FALSE,
                        via = "getInfo", container = "rgee_backup", lazy = FALSE,
                        quiet = FALSE, ...) {
