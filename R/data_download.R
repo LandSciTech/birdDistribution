@@ -1,7 +1,7 @@
 #' Download location and year information from WildTrax
 #'
 #' @param proj_id project_id in wildTrax
-#' @param sens_id type of sensor, either "ARU" or "point_count"
+#' @param sens_id type of sensor, either "ARU", "CAM, or "PC"
 #'
 #' @return
 #' @export

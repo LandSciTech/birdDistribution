@@ -26,3 +26,13 @@ prep_sp_dat(
 \description{
 Combine survey and count data for a species, optionally filter the data used
 }
+\examples{
+# get test data set
+test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
+prep_sp_dat(test_dat, "WTSP", sf::st_crs(test_dat$all_survey))
+
+# With a filter
+prep_sp_dat(test_dat, "WTSP", sf::st_crs(test_dat$all_survey),
+            train_dat_filter = "Date_Time <lubridate::ymd('2003-05-01')")
+
+}

@@ -47,3 +47,20 @@ An INLA object with the fit model
 \description{
 Fit a model of bird abundance using INLA
 }
+\examples{
+# get test data set
+test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
+
+# takes awhile to run
+if(FALSE){
+mod <- fit_inla(
+  sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+  analysis_data = test_dat,
+  proj_use = AEA_proj,
+  study_poly = test_area,
+  covariates = cov_df,
+  mod_dir = tempdir(),
+  save_mod = FALSE
+)
+}
+}

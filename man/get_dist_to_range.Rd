@@ -20,6 +20,7 @@ data frame with distance_from_range column added
 Distance will be zero inside the species' range.
 }
 \examples{
+test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
 surv_pt <- test_dat$all_surveys \%>\%
   slice(1) \%>\%
   select(Survey_Type, Survey_Duration_Minutes)

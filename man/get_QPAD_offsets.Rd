@@ -13,6 +13,22 @@ get_QPAD_offsets(sp_dat, sp_code, offset_table)
 
 \item{offset_table}{data frame of offset data}
 }
+\value{
+data.frame with QPAD offset column added. Column is either
+\code{log_QPAD_offset} if \code{Survey_Duration_Minutes} is included in \code{sp_dat},
+or \code{log_offset_5min} if not
+}
 \description{
 Use a pre-generated table of EDR and cue rate from QPAD to calculate offsets
+}
+\examples{
+test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
+
+# for a 5 min survey
+data.frame(survey_id = 1:5) \%>\%
+  get_QPAD_offsets("WTSP", test_dat$species_to_model)
+
+# based on survey duration
+data.frame(survey_id = 1:5, Survey_Duration_Minutes = 1:5) \%>\%
+  get_QPAD_offsets("WTSP", test_dat$species_to_model)
 }

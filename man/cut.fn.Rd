@@ -12,6 +12,15 @@
   upper_bound = NA
 )
 }
+\arguments{
+\item{df}{dataframe of predictions}
+
+\item{target_raster}{raster with desired structure eg resolution, crs etc}
+
+\item{column_name}{column in \code{df} to rasterize}
+
+\item{lower_bound, upper_bound}{upper and lower bounds for labels}
+}
 \description{
 Rasterize a series of spatial predictions (needed for plotting)
 }

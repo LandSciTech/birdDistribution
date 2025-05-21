@@ -42,3 +42,42 @@ cross-validation fold}
 \description{
 Makes several maps from different prediction outputs
 }
+\examples{
+test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
+
+# takes awhile to run
+if(FALSE){
+  mod <- fit_inla(
+    sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+    analysis_data = test_dat,
+    proj_use = AEA_proj,
+    study_poly = test_area,
+    covariates = cov_df,
+    mod_dir = tempdir(),
+    save_mod = FALSE
+  )
+
+  pred <- predict_inla(
+    dat = test_dat$ONGrid,
+    analysis_data = test_dat,
+    mod = mod,
+    sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+    covariates = cov_df,
+    do_crps = FALSE
+  )
+
+dir_use <- tempdir()
+map_inla_preds(
+  sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+  analysis_data = test_dat,
+  pred,
+  proj_use = AEA_proj,
+  study_poly = test_area,
+  atlas_squares = atl_sq \%>\% sf::st_transform(AEA_proj),
+  bcr_poly = bcr_poly,
+  map_dir = dir_use
+)
+
+out_maps <- list.files(dir_use, pattern = "png$", full.names = TRUE)
+}
+}

@@ -13,6 +13,7 @@
 #' @export
 #'
 #' @examples
+#' test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
 #' surv_pt <- test_dat$all_surveys %>%
 #'   slice(1) %>%
 #'   select(Survey_Type, Survey_Duration_Minutes)
@@ -46,10 +47,22 @@ get_dist_to_range <- function(sp_dat, sp_code, species_ranges) {
 #' @param sp_code species four letter code
 #' @param offset_table data frame of offset data
 #'
-#' @returns
+#' @returns data.frame with QPAD offset column added. Column is either
+#'   `log_QPAD_offset` if `Survey_Duration_Minutes` is included in `sp_dat`,
+#'   or `log_offset_5min` if not
 #' @export
 #'
 #' @examples
+#' test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
+#'
+#' # for a 5 min survey
+#' data.frame(survey_id = 1:5) %>%
+#'   get_QPAD_offsets("WTSP", test_dat$species_to_model)
+#'
+#' # based on survey duration
+#' data.frame(survey_id = 1:5, Survey_Duration_Minutes = 1:5) %>%
+#'   get_QPAD_offsets("WTSP", test_dat$species_to_model)
+
 get_QPAD_offsets <- function(sp_dat, sp_code, offset_table) {
   # ---
   # Generate QPAD offsets for each survey (assumes unlimited distance point counts)
@@ -91,6 +104,14 @@ get_QPAD_offsets <- function(sp_dat, sp_code, offset_table) {
 #' @returns
 #'
 #' @examples
+#' # get test data set
+#' test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
+#' prep_sp_dat(test_dat, "WTSP", sf::st_crs(test_dat$all_survey))
+#'
+#' # With a filter
+#' prep_sp_dat(test_dat, "WTSP", sf::st_crs(test_dat$all_survey),
+#'             train_dat_filter = "Date_Time <lubridate::ymd('2003-05-01')")
+#'
 prep_sp_dat <- function(analysis_data, sp_code, proj_use, train_dat_filter = "TRUE",
                         survey_types = c("Point_Count", "ARU_SPT", "ARU_SPM")) {
   sp_dat <- analysis_data$all_surveys %>%
@@ -115,10 +136,16 @@ prep_sp_dat <- function(analysis_data, sp_code, proj_use, train_dat_filter = "TR
 #' @param max.edge The largest allowed triangle edge length. See [fmesher::fm_mesh_2d_inla()] for details
 #' @param cutoff The minimum allowed distance between points. See [fmesher::fm_mesh_2d_inla()] for details
 #'
-#' @returns
+#' @returns an inla.spde2 mesh object
 #' @export
 #'
 #' @examples
+#'
+#' pg <- sf::st_polygon(list(rbind(c(0,0), c(100000,0), c(100000,100000), c(0,100000), c(0,0))))
+#' mesh <- pg %>%
+#'  make_mesh(proj_use = 9311)
+#' plot(mesh$mesh)
+#' plot(pg, add = TRUE, border = "red")
 make_mesh <- function(poly, proj_use, max.edge = c(70000, 100000), cutoff = 30000) {
   # make a two extension hulls and mesh for spatial model
   hull <- fmesher::fm_extensions(
@@ -168,6 +195,22 @@ make_mesh <- function(poly, proj_use, max.edge = c(70000, 100000), cutoff = 3000
 #' @export
 #'
 #' @examples
+#' # get test data set
+#' test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
+#'
+#' # takes awhile to run
+#' if(FALSE){
+#' mod <- fit_inla(
+#'   sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+#'   analysis_data = test_dat,
+#'   proj_use = AEA_proj,
+#'   study_poly = test_area,
+#'   covariates = cov_df,
+#'   mod_dir = tempdir(),
+#'   save_mod = FALSE
+#' )
+#' }
+
 fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
                      mod_dir = "data/derived-data/INLA_results/models/",
                      train_dat_filter = "TRUE", save_mod = TRUE, file_name_bit = "all") {
@@ -294,6 +337,31 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
 #' @export
 #'
 #' @examples
+#'
+#' # get test data set
+#' test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
+#'
+#' # takes awhile to run
+#' if(FALSE){
+#'   mod <- fit_inla(
+#'     sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+#'     analysis_data = test_dat,
+#'     proj_use = AEA_proj,
+#'     study_poly = test_area,
+#'     covariates = cov_df,
+#'     mod_dir = tempdir(),
+#'     save_mod = FALSE
+#'   )
+#'
+#'   pred <- predict_inla(
+#'     dat = test_dat$ONGrid,
+#'     analysis_data = test_dat,
+#'     mod = mod,
+#'     sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+#'     covariates = cov_df,
+#'     do_crps = FALSE
+#'   )
+#' }
 predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps = TRUE) {
   dat <- get_dist_to_range(dat, sp_code, analysis_data$species_ranges)
 
@@ -380,6 +448,44 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
 #' @export
 #'
 #' @examples
+#' test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
+#'
+#' # takes awhile to run
+#' if(FALSE){
+#'   mod <- fit_inla(
+#'     sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+#'     analysis_data = test_dat,
+#'     proj_use = AEA_proj,
+#'     study_poly = test_area,
+#'     covariates = cov_df,
+#'     mod_dir = tempdir(),
+#'     save_mod = FALSE
+#'   )
+#'
+#'   pred <- predict_inla(
+#'     dat = test_dat$ONGrid,
+#'     analysis_data = test_dat,
+#'     mod = mod,
+#'     sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+#'     covariates = cov_df,
+#'     do_crps = FALSE
+#'   )
+#'
+#' dir_use <- tempdir()
+#' map_inla_preds(
+#'   sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+#'   analysis_data = test_dat,
+#'   pred,
+#'   proj_use = AEA_proj,
+#'   study_poly = test_area,
+#'   atlas_squares = atl_sq %>% sf::st_transform(AEA_proj),
+#'   bcr_poly = bcr_poly,
+#'   map_dir = dir_use
+#' )
+#'
+#' out_maps <- list.files(dir_use, pattern = "png$", full.names = TRUE)
+#' }
+
 map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_squares, bcr_poly, study_poly,
                            map_dir = "data/derived-data/INLA_results/maps/",
                            train_dat_filter = "TRUE", file_name_bit = "all") {
@@ -445,6 +551,7 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
   upper_bound <- quantile(preds$pred_q50, 0.99, na.rm = TRUE) %>% signif(2)
   if (lower_bound >= (upper_bound / 5)) lower_bound <- (upper_bound / 5) %>% signif(2)
 
+  # TODO: might need to change the target or expose as arguement
   target_raster <- terra::rast(
     resolution = 10, crs = proj_use,
     extent = terra::ext(study_poly %>% terra::vect()),
@@ -616,7 +723,6 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
 #'
 #' @returns saves the map to `file_nm`
 #'
-#' @examples
 do_res_plot <- function(pred_rast, title, subtitle, subsubtitle = "", samp_grid, bcr_poly,
                         col_pal_fn, species_label, levs_nm, file_nm) {
   res_plot <- ggplot2::ggplot() +
@@ -677,6 +783,11 @@ do_res_plot <- function(pred_rast, title, subtitle, subsubtitle = "", samp_grid,
 
 
 #' Rasterize a series of spatial predictions (needed for plotting)
+#'
+#' @param df dataframe of predictions
+#' @param target_raster raster with desired structure eg resolution, crs etc
+#' @param column_name column in `df` to rasterize
+#' @param lower_bound,upper_bound upper and lower bounds for labels
 
 cut.fn <- function(df = NA,
                    target_raster = NA,
@@ -716,7 +827,52 @@ cut.fn <- function(df = NA,
 }
 
 
-# evaluate model performance based on predicted vs observed count
+#' Evaluate model performance based on predicted vs observed count
+#'
+#' Compare predicted median abundance to observed count. Also summarise CRPS and log score if available
+#'
+#' @param pred prediction data frame
+#' @param mod fitted model
+#' @param sp_code species code
+#' @param analysis_data list containing analysis data, including `full_count_matrix`
+#'
+#' @returns data frame of performance metrics
+#' @export
+#'
+#' @examples
+#'
+#' test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
+#'
+#' test_dat$all_surveys <- test_dat$all_surveys %>% mutate(Obs_Index = 1:n())
+#'
+#' # takes awhile to run
+#' if(FALSE){
+#' # train on old data
+#'   mod <- fit_inla(
+#'     sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+#'     analysis_data = test_dat,
+#'     proj_use = AEA_proj,
+#'     study_poly = test_area,
+#'     covariates = cov_df,
+#'     mod_dir = tempdir(),
+#'     save_mod = FALSE,
+#'     train_dat_filter = "Date_Time < lubridate::ymd('2010-05-01')"
+#'   )
+#' # Predict on new data
+#'   pred <- predict_inla(
+#'     dat = test_dat$all_surveys %>% filter(Date_Time >= lubridate::ymd('2010-05-01')),
+#'     analysis_data = test_dat,
+#'     mod = mod,
+#'     sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+#'     covariates = cov_df,
+#'     do_crps = TRUE
+#'   )
+#'
+#' evaluate_preds(pred %>% mutate(Crossval_Fold = 1), mod,
+#'                sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+#'                test_dat)
+#' }
+#'
 evaluate_preds <- function(pred, mod, sp_code, analysis_data) {
   obs_count <- analysis_data$full_count_matrix[pred$Obs_Index, sp_code]
 
@@ -739,7 +895,7 @@ evaluate_preds <- function(pred, mod, sp_code, analysis_data) {
   med_logs_pres <- median(pred$logs[obs_count > 0])
   med_logs_abs <- median(pred$logs[obs_count == 0])
 
-  tibble(
+  tibble::tibble(
     species = sp_code, fold = unique(pred$Crossval_Fold),
     rmse = rmse_pred, auc = as.numeric(auc_pred), lppd = lppd_pred,
     med_crps = med_crps, med_logs = med_logs,

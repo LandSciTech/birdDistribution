@@ -9,7 +9,7 @@ wt_dl_loc_year(proj_id, sens_id)
 \arguments{
 \item{proj_id}{project_id in wildTrax}
 
-\item{sens_id}{type of sensor, either "ARU" or "point_count"}
+\item{sens_id}{type of sensor, either "ARU", "CAM, or "PC"}
 }
 \description{
 Download location and year information from WildTrax

@@ -16,6 +16,17 @@ should have units of kms to avoid an extremely dense mesh}
 
 \item{cutoff}{The minimum allowed distance between points. See \code{\link[fmesher:fm_mesh_2d]{fmesher::fm_mesh_2d_inla()}} for details}
 }
+\value{
+an inla.spde2 mesh object
+}
 \description{
 Create a spatial mesh, which is used to fit the residual spatial field
+}
+\examples{
+
+pg <- sf::st_polygon(list(rbind(c(0,0), c(100000,0), c(100000,100000), c(0,100000), c(0,0))))
+mesh <- pg \%>\%
+ make_mesh(proj_use = 9311)
+plot(mesh$mesh)
+plot(pg, add = TRUE, border = "red")
 }
