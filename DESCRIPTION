@@ -15,12 +15,9 @@ RoxygenNote: 7.3.2
 URL: https://github.com/LandSciTech/birdDistribution
 BugReports: https://github.com/LandSciTech/birdDistribution/issues
 Suggests: 
-    lubridate,
     readxl,
-    rgee,
     testthat (>= 3.0.0),
     tictoc,
-    tidyverse,
     units
 Config/testthat/edition: 3
 Imports: 
@@ -32,12 +29,15 @@ Imports:
     fmesher,
     future,
     geojsonio,
+    ggplot2,
     ggtext,
     googledrive,
     INLA,
     inlabru,
+    lubridate,
     pROC,
     purrr,
+    rgee,
     rlang,
     scoringRules,
     sf,
@@ -45,6 +45,8 @@ Imports:
     stars,
     stringr,
     terra,
+    tibble,
+    tidyr,
     wildrtrax
 Remotes: 
   url::https://github.com/hrue/r-inla/archive/refs/heads/stable.zip,
