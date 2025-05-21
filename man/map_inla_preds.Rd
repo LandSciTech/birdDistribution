@@ -31,6 +31,8 @@ map_inla_preds(
 
 \item{bcr_poly}{polygon of BCR boundaries to use in map.}
 
+\item{study_poly}{sf polygon of study area.}
+
 \item{map_dir}{directory where the map images should be saved}
 
 \item{train_dat_filter}{a string that will be used to filter the input data,

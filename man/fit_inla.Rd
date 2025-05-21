@@ -25,7 +25,7 @@ fit_inla(
 \item{proj_use}{projection/coordinate reference system to use. Note this
 should have units of kms to avoid an extremely dense mesh}
 
-\item{study_poly}{sf polygon of study area polygon}
+\item{study_poly}{sf polygon of study area}
 
 \item{covariates}{a data frame with columns covariate, model, mean, prec, beta
 which is used to define the model formula.}

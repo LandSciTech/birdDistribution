@@ -180,7 +180,7 @@ make_mesh <- function(poly, proj_use, max.edge = c(70000, 100000), cutoff = 3000
 #'  `all_surveys`, `species_ranges`, and `species_to_model`
 #' @param proj_use projection/coordinate reference system to use. Note this
 #'  should have units of kms to avoid an extremely dense mesh
-#' @param study_poly sf polygon of study area polygon
+#' @param study_poly sf polygon of study area
 #' @param covariates a data frame with columns covariate, model, mean, prec, beta
 #'  which is used to define the model formula.
 #' @param mod_dir directory where the model object will be saved or loaded from
@@ -438,6 +438,7 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
 #' @param proj_use projection/coordinate reference system to use.
 #' @param atlas_squares grid of squares to show predictions and observations in.
 #' @param bcr_poly polygon of BCR boundaries to use in map.
+#' @param study_poly sf polygon of study area.
 #' @param map_dir directory where the map images should be saved
 #' @param train_dat_filter a string that will be used to filter the input data,
 #'  the default will not filter anything

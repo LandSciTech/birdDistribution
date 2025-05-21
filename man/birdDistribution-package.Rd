@@ -19,5 +19,10 @@ Useful links:
 \author{
 \strong{Maintainer}: Sarah Endicott \email{sarah.endicott@canada.ca} (\href{https://orcid.org/0000-0001-9644-5343}{ORCID})
 
+Authors:
+\itemize{
+  \item David Isles \email{david.isles@ec.gc.ca}
+}
+
 }
 \keyword{internal}
