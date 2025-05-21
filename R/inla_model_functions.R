@@ -267,7 +267,7 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
             Intercept_PC(1)+
             range_effect(1,model="linear", mean.linear = -0.046, prec.linear = 10000)+
             TSS(main = Hours_Since_Sunrise,model = TSS_spde) +
-            spde_coarse(main = coordinates, model = matern_coarse) +',
+            spde_coarse(main = sp::coordinates, model = matern_coarse) +',
     paste0(covariates$components, collapse = " + ")
   ))
 

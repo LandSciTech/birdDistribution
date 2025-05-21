@@ -41,6 +41,7 @@ Imports:
     rlang,
     scoringRules,
     sf,
+    sp,
     stars,
     stringr,
     terra,
