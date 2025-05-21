@@ -45,6 +45,11 @@ jobs:
           extra-packages: any::rcmdcheck
           needs: check
 
+      - name: Add inla repo
+        run: |
+          writeLines('options(repos = c(INLA = "https://inla.r-inla-download.org/R/stable/", getOption(\"repos\")))', file("~/.Rprofile", "ab"))
+        shell: Rscript {0}
+
       - uses: r-lib/actions/check-r-package@v2
         with:
           upload-snapshots: true

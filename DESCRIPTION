@@ -49,7 +49,6 @@ Imports:
     tidyr,
     wildrtrax
 Remotes: 
-  INLA=url::https://github.com/hrue/r-inla/archive/refs/heads/stable.zip,
   BirdsCanada/naturecounts,
   ABbiodiversity/wildrtrax,
   na-pops/napops
