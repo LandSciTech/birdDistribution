@@ -25,7 +25,10 @@ Compare predicted median abundance to observed count. Also summarise CRPS and lo
 
 test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
 
-test_dat$all_surveys <- test_dat$all_surveys \%>\% mutate(Obs_Index = 1:n())
+test_dat$all_surveys$Obs_Index <- 1:nrow(test_dat$all_surveys)
+
+# Using km for projection units because it helps with INLA model calculations to have smaller numbers
+AEA_proj <- "+proj=aea +lat_1=50 +lat_2=70 +lat_0=40 +lon_0=-106 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=km +no_defs "
 
 # takes awhile to run
 if(FALSE){

@@ -1,10 +1,10 @@
 skip_if_not(interactive(), message = "gee tests need to be run interactively")
-library(rgee)
+# library(rgee)
 
 # initialize rgee
 # Use this to save a token, doesn't need to be repeated every time
 # ee$Authenticate(auth_mode='notebook')
-ee$Initialize(project = "ee-sarahendicott-eccc") # <-- EDIT THIS FOR YOUR PROJECT
+rgee::ee$Initialize(project = "ee-sarahendicott-eccc") # <-- EDIT THIS FOR YOUR PROJECT
 
 # Optionally
 # make a request to verify you are connected.
@@ -57,6 +57,7 @@ BAM_var_list %>%
 
 
 test_that("Data can download", {
+  # takes ~6 mins to run
   out_dir <- file.path(tempdir(), "test_covars")
   tictoc::tic()
   # Function uses GEE and the BAM variables list to extract BAM variables that are

@@ -13,6 +13,8 @@
 #' @export
 #'
 #' @examples
+#' library(dplyr)
+#' library(sf)
 #' test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
 #' surv_pt <- test_dat$all_surveys %>%
 #'   slice(1) %>%
@@ -105,6 +107,8 @@ get_QPAD_offsets <- function(sp_dat, sp_code, offset_table) {
 #'
 #' @returns data frame of combined data
 #'
+#' @export
+#'
 #' @examples
 #' # get test data set
 #' test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
@@ -112,7 +116,7 @@ get_QPAD_offsets <- function(sp_dat, sp_code, offset_table) {
 #'
 #' # With a filter
 #' prep_sp_dat(test_dat, "WTSP", sf::st_crs(test_dat$all_survey),
-#'             train_dat_filter = "Date_Time <lubridate::ymd('2003-05-01')")
+#'             train_dat_filter = "Date_Time < lubridate::ymd('2003-05-01')")
 #'
 prep_sp_dat <- function(analysis_data, sp_code, proj_use, train_dat_filter = "TRUE",
                         survey_types = c("Point_Count", "ARU_SPT", "ARU_SPM")) {
@@ -201,6 +205,9 @@ make_mesh <- function(poly, proj_use, max.edge = c(70000, 100000), cutoff = 3000
 #' @examples
 #' # get test data set
 #' test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
+#'
+#' # Using km for projection units because it helps with INLA model calculations to have smaller numbers
+#' AEA_proj <- "+proj=aea +lat_1=50 +lat_2=70 +lat_0=40 +lon_0=-106 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=km +no_defs "
 #'
 #' # takes awhile to run
 #' if(FALSE){
@@ -346,6 +353,9 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
 #' # get test data set
 #' test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
 #'
+#' # Using km for projection units because it helps with INLA model calculations to have smaller numbers
+#' AEA_proj <- "+proj=aea +lat_1=50 +lat_2=70 +lat_0=40 +lon_0=-106 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=km +no_defs "
+#'
 #' # takes awhile to run
 #' if(FALSE){
 #'   mod <- fit_inla(
@@ -457,6 +467,9 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
 #' @examples
 #' test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
 #'
+#' # Using km for projection units because it helps with INLA model calculations to have smaller numbers
+#' AEA_proj <- "+proj=aea +lat_1=50 +lat_2=70 +lat_0=40 +lon_0=-106 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=km +no_defs "
+#'
 #' # takes awhile to run
 #' if(FALSE){
 #'   mod <- fit_inla(
@@ -478,19 +491,26 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
 #'     do_crps = FALSE
 #'   )
 #'
-#' dir_use <- tempdir()
-#' map_inla_preds(
-#'   sp_code = test_dat$species_to_model$Species_Code_BSC[1],
-#'   analysis_data = test_dat,
-#'   pred,
-#'   proj_use = AEA_proj,
-#'   study_poly = test_area,
-#'   atlas_squares = atl_sq %>% sf::st_transform(AEA_proj),
-#'   bcr_poly = bcr_poly,
-#'   map_dir = dir_use
-#' )
+#'   map_raster_out <- terra::rast(
+#'     resolution = 10, crs = AEA_proj,
+#'     extent = terra::ext(test_area %>% terra::vect()),
+#'     vals = 1
+#'   )
 #'
-#' out_maps <- list.files(dir_use, pattern = "png$", full.names = TRUE)
+#'   dir_use <- tempdir()
+#'   map_inla_preds(
+#'     sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+#'     analysis_data = test_dat,
+#'     pred,
+#'     proj_use = AEA_proj,
+#'     study_poly = test_area,
+#'     atlas_squares = atl_sq %>% sf::st_transform(AEA_proj),
+#'     bcr_poly = bcr_poly,
+#'     target_raster = map_raster_out,
+#'     map_dir = dir_use
+#'   )
+#'
+#'   out_maps <- list.files(dir_use, pattern = "png$", full.names = TRUE)
 #' }
 
 map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_squares,
@@ -845,7 +865,10 @@ cut_fn <- function(df = NA,
 #'
 #' test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
 #'
-#' test_dat$all_surveys <- test_dat$all_surveys %>% mutate(Obs_Index = 1:n())
+#' test_dat$all_surveys$Obs_Index <- 1:nrow(test_dat$all_surveys)
+#'
+#' # Using km for projection units because it helps with INLA model calculations to have smaller numbers
+#' AEA_proj <- "+proj=aea +lat_1=50 +lat_2=70 +lat_0=40 +lon_0=-106 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=km +no_defs "
 #'
 #' # takes awhile to run
 #' if(FALSE){

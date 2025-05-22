@@ -9,11 +9,15 @@ gd_dl_file(gd_folder, gd_file, gd_dl_dir, rast_name = "")
 \arguments{
 \item{gd_folder}{Folder on Google Drive within the BAM CovariateRasters folder}
 
-\item{gd_file}{File or folder within name within \code{gd_folder}. If it is a file
-it is expected to be a single tif if a folder it is a folder with multiple
-tif files for each year.}
+\item{gd_file}{File or folder name within \code{gd_folder}. If it is a file it is
+expected to be a single tif if a folder it is a folder with multiple tif
+files for each year. Or for SCANFI a folder with multiple folders for each
+year.}
 
 \item{gd_dl_dir}{Local directory where the files should be downloaded to.}
+
+\item{rast_name}{Only used for SCANFI to select which file within year folder
+to extract}
 }
 \value{
 The local file path or a list of paths if \code{gd_file} is a folder.

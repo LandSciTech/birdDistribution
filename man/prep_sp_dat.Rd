@@ -36,6 +36,6 @@ prep_sp_dat(test_dat, "WTSP", sf::st_crs(test_dat$all_survey))
 
 # With a filter
 prep_sp_dat(test_dat, "WTSP", sf::st_crs(test_dat$all_survey),
-            train_dat_filter = "Date_Time <lubridate::ymd('2003-05-01')")
+            train_dat_filter = "Date_Time < lubridate::ymd('2003-05-01')")
 
 }

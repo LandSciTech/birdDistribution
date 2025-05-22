@@ -53,9 +53,9 @@ gee_points_extract <- function(
 
   if (do.test.run) {
     loc.buff.small <- loc.buff %>% slice(1:20)
-    gee_data <- ee$Image("users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1")
+    gee_data <- rgee::ee$Image("users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1")
     # Not working because SpatialResolution is a character
-    # gee_data1<-ee_extract(gee_data, loc.buff.small, fun = ee$Reducer$mean(),
+    # gee_data1<-ee_extract(gee_data, loc.buff.small, fun = rgee::ee$Reducer$mean(),
     #   scale = as.integer(meth.gee$SpatialResolution[3]))
 
     # Since National file says to use native I am extracting that from the object and using it.
@@ -63,7 +63,7 @@ gee_points_extract <- function(
 
     # set scale to default for now
     gee_data1 <- ee_extract(gee_data, loc.buff.small,
-      fun = ee$Reducer$mean(),
+      fun = rgee::ee$Reducer$mean(),
       scale = nominal_scale
     )
     message("Test run successful")
@@ -88,14 +88,14 @@ gee_points_extract <- function(
       print(i)
       if (meth.gee$GEEtype[i] == "image") {
         if (!is.na(meth.gee$GEEBand[i])) {
-          img.i <- ee$Image(meth.gee$Link[i])$
+          img.i <- rgee::ee$Image(meth.gee$Link[i])$
             select(meth.gee$GEEBand[i])
         } else {
-          img.i <- ee$Image(meth.gee$Link[i])
+          img.i <- rgee::ee$Image(meth.gee$Link[i])
         }
       }
       if (meth.gee$GEEtype[i] == "imagecollection") {
-        img.i <- ee$ImageCollection(meth.gee$Link[i])$
+        img.i <- rgee::ee$ImageCollection(meth.gee$Link[i])$
           select(meth.gee$GEEBand[i])$
           toBands()
       }
@@ -122,14 +122,14 @@ gee_points_extract <- function(
         print("check mean or cv")
         if (meth.gee$RadiusFunction[i] == "mean") {
           gee.data.static.extract <- ee_extract(img.i, loc.gee.i[[j]],
-            fun = ee$Reducer$mean(),
+            fun = rgee::ee$Reducer$mean(),
             scale = as.integer(meth.gee$GEEScale[i])
           )
         }
 
         if (meth.gee$RadiusFunction[i] == "cv") {
           gee.data.static.extract <- ee_extract(img.i, loc.gee.i[[j]],
-            fun = ee$Reducer$stdDev(),
+            fun = rgee::ee$Reducer$stdDev(),
             scale = as.integer(meth.gee$GEEScale[i])
           )
         }
@@ -236,8 +236,8 @@ gee_points_extract <- function(
           }
 
           # Get the image
-          img.i <- ee$ImageCollection(meth.gee$Link[i])$
-            filter(ee$Filter$date(start.k, end.k))$select(meth.gee$GEEBand[i])$mean()
+          img.i <- rgee::ee$ImageCollection(meth.gee$Link[i])$
+            filter(rgee::ee$Filter$date(start.k, end.k))$select(meth.gee$GEEBand[i])$mean()
 
           # Extract
           if (nrow(loc.n.yr) > 1000) { # 5000 entries is the limit for google earth engine
@@ -263,14 +263,14 @@ gee_points_extract <- function(
             if (meth.gee$Extraction[i] == "radius") {
               if (meth.gee$RadiusFunction[i] == "mean") {
                 gee.ext.data <- ee_extract(img.i, split[[h]],
-                  fun = ee$Reducer$mean(),
+                  fun = rgee::ee$Reducer$mean(),
                   scale = as.integer(meth.gee$GEEScale[i])
                 )
               }
 
               if (meth.gee$RadiusFunction[i] == "mode") {
                 gee.ext.data <- ee_extract(img.i, split[[h]],
-                  fun = ee$Reducer$mode(),
+                  fun = rgee::ee$Reducer$mode(),
                   scale = as.integer(meth.gee$GEEScale[i])
                 )
               }
@@ -506,10 +506,13 @@ gee_points_extract <- function(
 #' and returns their local paths.
 #'
 #' @param gd_folder Folder on Google Drive within the BAM CovariateRasters folder
-#' @param gd_file File or folder within name within `gd_folder`. If it is a file
-#'   it is expected to be a single tif if a folder it is a folder with multiple
-#'   tif files for each year.
+#' @param gd_file File or folder name within `gd_folder`. If it is a file it is
+#'   expected to be a single tif if a folder it is a folder with multiple tif
+#'   files for each year. Or for SCANFI a folder with multiple folders for each
+#'   year.
 #' @param gd_dl_dir Local directory where the files should be downloaded to.
+#' @param rast_name Only used for SCANFI to select which file within year folder
+#'   to extract
 #'
 #' @returns The local file path or a list of paths if `gd_file` is a folder.
 #'

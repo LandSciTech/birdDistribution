@@ -12,6 +12,7 @@ map_inla_preds(
   atlas_squares,
   bcr_poly,
   study_poly,
+  target_raster,
   map_dir = "data/derived-data/INLA_results/maps/",
   train_dat_filter = "TRUE",
   file_name_bit = "all"
@@ -33,6 +34,8 @@ map_inla_preds(
 
 \item{study_poly}{sf polygon of study area.}
 
+\item{target_raster}{raster with desired structure eg resolution, crs etc}
+
 \item{map_dir}{directory where the map images should be saved}
 
 \item{train_dat_filter}{a string that will be used to filter the input data,
@@ -49,6 +52,9 @@ Makes several maps from different prediction outputs
 }
 \examples{
 test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
+
+# Using km for projection units because it helps with INLA model calculations to have smaller numbers
+AEA_proj <- "+proj=aea +lat_1=50 +lat_2=70 +lat_0=40 +lon_0=-106 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=km +no_defs "
 
 # takes awhile to run
 if(FALSE){
@@ -71,18 +77,25 @@ if(FALSE){
     do_crps = FALSE
   )
 
-dir_use <- tempdir()
-map_inla_preds(
-  sp_code = test_dat$species_to_model$Species_Code_BSC[1],
-  analysis_data = test_dat,
-  pred,
-  proj_use = AEA_proj,
-  study_poly = test_area,
-  atlas_squares = atl_sq \%>\% sf::st_transform(AEA_proj),
-  bcr_poly = bcr_poly,
-  map_dir = dir_use
-)
+  map_raster_out <- terra::rast(
+    resolution = 10, crs = AEA_proj,
+    extent = terra::ext(test_area \%>\% terra::vect()),
+    vals = 1
+  )
 
-out_maps <- list.files(dir_use, pattern = "png$", full.names = TRUE)
+  dir_use <- tempdir()
+  map_inla_preds(
+    sp_code = test_dat$species_to_model$Species_Code_BSC[1],
+    analysis_data = test_dat,
+    pred,
+    proj_use = AEA_proj,
+    study_poly = test_area,
+    atlas_squares = atl_sq \%>\% sf::st_transform(AEA_proj),
+    bcr_poly = bcr_poly,
+    target_raster = map_raster_out,
+    map_dir = dir_use
+  )
+
+  out_maps <- list.files(dir_use, pattern = "png$", full.names = TRUE)
 }
 }

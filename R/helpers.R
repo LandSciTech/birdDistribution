@@ -1,6 +1,10 @@
 #' Not in
+#'
+#' Negated in operator
+#'
 #' @export
-#' @noRd
+#' @usage NULL
+#' @rdname helpers
 `%!in%` <- Negate(`%in%`)
 
 

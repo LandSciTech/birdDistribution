@@ -36,6 +36,9 @@ score are optionally calculated.
 # get test data set
 test_dat <- readRDS(system.file("extdata", "analysis_data_test.rds", package = "birdDistribution"))
 
+# Using km for projection units because it helps with INLA model calculations to have smaller numbers
+AEA_proj <- "+proj=aea +lat_1=50 +lat_2=70 +lat_0=40 +lon_0=-106 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=km +no_defs "
+
 # takes awhile to run
 if(FALSE){
   mod <- fit_inla(

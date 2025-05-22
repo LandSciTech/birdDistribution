@@ -6,7 +6,7 @@
 \alias{birdDistribution-package}
 \title{birdDistribution: Model Bird Distributions}
 \description{
-Build bird distribution and abundance models in R. The package currently uses INLA to build Bayesian models of bird distribution and abundance in Canada. This is a work in progress
+Build bird distribution and abundance models in R. The package currently uses INLA to build Bayesian models of bird distribution and abundance in Canada. This is a work in progress.
 }
 \seealso{
 Useful links:
