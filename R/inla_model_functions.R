@@ -192,6 +192,8 @@ make_mesh <- function(poly, proj_use, max.edge = c(70000, 100000), cutoff = 3000
 #' @param save_mod logical. Should the model object be saved?
 #' @param file_name_bit suffix attached to the file name eg to identify
 #'  cross-validation fold
+#' @param bru_verbose level of verbosity from bru. Lower number leads to less
+#'   output. See [inlabru::bru_options()]
 #'
 #' @returns An INLA object with the fit model
 #' @export
@@ -215,7 +217,8 @@ make_mesh <- function(poly, proj_use, max.edge = c(70000, 100000), cutoff = 3000
 
 fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
                      mod_dir = "data/derived-data/INLA_results/models/",
-                     train_dat_filter = "TRUE", save_mod = TRUE, file_name_bit = "all") {
+                     train_dat_filter = "TRUE", save_mod = TRUE, file_name_bit = "all",
+                     bru_verbose = 4) {
   message("starting model for: ", sp_code)
 
   model_file <- paste0(
@@ -301,7 +304,7 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
       ),
       options = list(
         control.compute = list(waic = FALSE, cpo = FALSE),
-        bru_verbose = 4
+        bru_verbose = bru_verbose
       )
     )
     if ("try-error" %in% class(fit_INLA)) fit_INLA <- NULL
@@ -379,7 +382,7 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
   mod_form <- mod$bru_info$lhoods[[1]]$formula
 
   if (offset_var != "log_QPAD_offset") {
-    dat <- dat %>% rename(log_QPAD_offset = offset_var)
+    dat <- dat %>% rename(log_QPAD_offset = all_of(offset_var))
   }
 
   # Predictions are on log scale, and do not include variance components
@@ -441,6 +444,7 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
 #' @param atlas_squares grid of squares to show predictions and observations in.
 #' @param bcr_poly polygon of BCR boundaries to use in map.
 #' @param study_poly sf polygon of study area.
+#' @param target_raster raster with desired structure eg resolution, crs etc
 #' @param map_dir directory where the map images should be saved
 #' @param train_dat_filter a string that will be used to filter the input data,
 #'  the default will not filter anything
@@ -489,7 +493,8 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
 #' out_maps <- list.files(dir_use, pattern = "png$", full.names = TRUE)
 #' }
 
-map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_squares, bcr_poly, study_poly,
+map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_squares,
+                           bcr_poly, study_poly, target_raster,
                            map_dir = "data/derived-data/INLA_results/maps/",
                            train_dat_filter = "TRUE", file_name_bit = "all") {
   map_file <- file.path(map_dir, paste0(
@@ -553,13 +558,6 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
   lower_bound <- 0.01
   upper_bound <- quantile(preds$pred_q50, 0.99, na.rm = TRUE) %>% signif(2)
   if (lower_bound >= (upper_bound / 5)) lower_bound <- (upper_bound / 5) %>% signif(2)
-
-  # TODO: might need to change the target or expose as arguement
-  target_raster <- terra::rast(
-    resolution = 10, crs = proj_use,
-    extent = terra::ext(study_poly %>% terra::vect()),
-    vals = 1
-  )
 
   sp_cut <- cut_fn(
     df = preds,
@@ -764,7 +762,7 @@ do_res_plot <- function(pred_rast, title, subtitle, subsubtitle = "", samp_grid,
     ggplot2::theme(
       legend.margin = ggplot2::margin(0, 0, 0, 0),
       legend.box.margin = ggplot2::margin(5, 10, 5, -20),
-      legend.title.align = 0.5,
+      # legend.title.align = 0.5, deprecated change hjust below if needed
       legend.title = ggtext::element_markdown(lineheight = .9, hjust = 1),
       legend.justification = c(1, 1),
       legend.position = "inside",

@@ -13,7 +13,8 @@ fit_inla(
   mod_dir = "data/derived-data/INLA_results/models/",
   train_dat_filter = "TRUE",
   save_mod = TRUE,
-  file_name_bit = "all"
+  file_name_bit = "all",
+  bru_verbose = 4
 )
 }
 \arguments{
@@ -40,6 +41,8 @@ the default will not filter anything}
 
 \item{file_name_bit}{suffix attached to the file name eg to identify
 cross-validation fold}
+
+\item{bru_verbose}{level of verbosity from bru. Lower number leads to less output. See \code{\link[inlabru:bru_options]{inlabru::bru_options()}}}
 }
 \value{
 An INLA object with the fit model

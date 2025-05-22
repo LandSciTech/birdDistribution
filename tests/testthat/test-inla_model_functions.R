@@ -18,7 +18,8 @@ atl_sq <- sf::st_make_grid(
   sf::st_intersection(test_area) %>%
   na.omit() %>%
   mutate(sq_id = 1:nrow(.)) %>%
-  rename(geometry = x)
+  rename(geometry = x) %>%
+  sf::st_set_agr("constant")
 
 bcr_poly <- test_area %>% sf::st_buffer(-10000)
 
@@ -41,7 +42,8 @@ test_that("overall flow works", {
     study_poly = test_area,
     covariates = cov_df,
     mod_dir = tempdir(),
-    save_mod = FALSE
+    save_mod = FALSE,
+    bru_verbose = 0
   )
 
   expect_s3_class(mod, "bru")
@@ -57,6 +59,12 @@ test_that("overall flow works", {
 
   expect_s3_class(pred, "data.frame")
 
+  map_raster_out <- terra::rast(
+    resolution = 10, crs = AEA_proj,
+    extent = terra::ext(test_area %>% terra::vect()),
+    vals = 1
+  )
+
   dir_use <- tempdir()
   map_inla_preds(
     sp_code = test_dat$species_to_model$Species_Code_BSC[1],
@@ -64,6 +72,7 @@ test_that("overall flow works", {
     pred,
     proj_use = AEA_proj,
     study_poly = test_area,
+    target_raster = map_raster_out,
     atlas_squares = atl_sq %>% sf::st_transform(AEA_proj),
     bcr_poly = bcr_poly,
     map_dir = dir_use
@@ -89,7 +98,8 @@ test_that("crossvalidation flow works", {
     covariates = cov_df,
     mod_dir = tempdir(),
     save_mod = FALSE,
-    train_dat_filter = "Date_Time < lubridate::ymd('2010-05-01')"
+    train_dat_filter = "Date_Time < lubridate::ymd('2010-05-01')",
+    bru_verbose = 0
   )
   # Predict on new data
   pred <- predict_inla(
