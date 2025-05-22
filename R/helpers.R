@@ -57,8 +57,5 @@ fit_brt <- function(model_data,
     }
     t <- proc.time() - ptm
   }
-  if (is.null(mod_brt)) {
-    next
-  }
   return(mod_brt)
 }
