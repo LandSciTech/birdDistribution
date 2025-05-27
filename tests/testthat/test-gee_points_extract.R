@@ -3,12 +3,12 @@ skip_if_not(interactive(), message = "gee tests need to be run interactively")
 
 # initialize rgee
 # Use this to save a token, doesn't need to be repeated every time
-# ee$Authenticate(auth_mode='notebook')
+# rgee::ee$Authenticate(auth_mode='notebook')
 rgee::ee$Initialize(project = "ee-sarahendicott-eccc") # <-- EDIT THIS FOR YOUR PROJECT
 
 # Optionally
 # make a request to verify you are connected.
-# ee$String('Hello from the Earth Engine servers!')$getInfo()
+# rgee::ee$String('Hello from the Earth Engine servers!')$getInfo()
 
 
 # get test data set
