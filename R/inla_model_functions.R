@@ -27,7 +27,7 @@ get_dist_to_range <- function(sp_dat, sp_code, species_ranges) {
     range <- species_ranges[[sp_code]] %>% sf::st_transform(sf::st_crs(sp_dat))
 
     if (any(sf::st_geometry_type(sp_dat) == "POLYGON" |
-      sf::st_geometry_type(sp_dat) == "MULTIPOLYGON")) {
+            sf::st_geometry_type(sp_dat) == "MULTIPOLYGON")) {
       start_pt <- sf::st_centroid(sp_dat)
     } else {
       start_pt <- sp_dat
@@ -83,7 +83,7 @@ get_QPAD_offsets <- function(sp_dat, sp_code, offset_table) {
   if (species_offsets$offset_exists) {
     if (hasName(sp_dat, "Survey_Duration_Minutes")) {
       # Calculate offset for duration of survey from species overall offset value
-      # Not using TSS because it is in the INLA model
+      # Not using HSS because it is in the INLA model
       A_metres <- pi * species_offsets$EDR^2
       p <- 1 - exp(-sp_dat$Survey_Duration_Minutes * species_offsets$cue_rate)
       sp_dat$log_QPAD_offset <- log(A_metres * p)
@@ -152,12 +152,13 @@ prep_sp_dat <- function(analysis_data, sp_code, proj_use, train_dat_filter = "TR
 #'  make_mesh(proj_use = 9311)
 #' plot(mesh$mesh)
 #' plot(pg, add = TRUE, border = "red")
-make_mesh <- function(poly, proj_use, max.edge = c(70000, 100000), cutoff = 30000) {
+make_mesh <- function(poly, proj_use, max.edge = c(70, 100), cutoff = 30) {
+
   # make a two extension hulls and mesh for spatial model
   hull <- fmesher::fm_extensions(
     poly,
-    convex = c(50000, 200000),
-    concave = c(350000, 500000)
+    convex = c(50, 200),
+    concave = c(350, 500)
   )
   mesh_spatial <- fmesher::fm_mesh_2d_inla(
     boundary = hull,
@@ -165,14 +166,15 @@ make_mesh <- function(poly, proj_use, max.edge = c(70000, 100000), cutoff = 3000
     cutoff = cutoff,
     crs = fmesher::fm_crs(proj_use)
   ) # cutoff is min edge
+
   mesh_locs <- mesh_spatial$loc[, c(1, 2)] %>% as.data.frame()
   message("Mesh created with ", dim(mesh_locs)[1], " vertices.")
 
-  prior_range <- c(300000, 0.1) # 10% chance range is smaller than 300000
-  prior_sigma <- c(0.5, 0.1) # 10% chance sd is larger than 0.5
+  prior_range <- c(500, 0.5) # 50% chance range is smaller than 500 km
+  prior_sigma <- c(0.1, 0.1) # 10% chance sd is larger than 0.1
   INLA::inla.spde2.pcmatern(mesh_spatial,
-    prior.range = prior_range,
-    prior.sigma = prior_sigma
+                            prior.range = prior_range,
+                            prior.sigma = prior_sigma
   )
 }
 
@@ -199,6 +201,8 @@ make_mesh <- function(poly, proj_use, max.edge = c(70000, 100000), cutoff = 3000
 #' @param bru_verbose level of verbosity from bru. Lower number leads to less
 #'   output. See [inlabru::bru_options()]
 #'
+#' @note Helpful information about setting priors can be found here: https://tutorials.inbo.be/tutorials/r_inla/spatial.pdf
+#'
 #' @returns An INLA object with the fit model
 #' @export
 #'
@@ -223,9 +227,13 @@ make_mesh <- function(poly, proj_use, max.edge = c(70000, 100000), cutoff = 3000
 #' }
 
 fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
+                     error_type = "nbinomial",
+                     prior_range_abund = c(500,0.5), prior_sigma_abund = c(0.1,0.1),
+                     prior_range_change = c(500,0.5), prior_sigma_change = c(0.1,0.1),
                      mod_dir = "data/derived-data/INLA_results/models/",
                      train_dat_filter = "TRUE", save_mod = TRUE, file_name_bit = "all",
                      bru_verbose = 4) {
+
   message("starting model for: ", sp_code)
 
   model_file <- paste0(
@@ -245,21 +253,58 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
   # Prepare data for this species
   sp_dat <- prep_sp_dat(analysis_data, sp_code, proj_use, train_dat_filter)
 
-  matern_coarse <- make_mesh(study_poly, proj_use)
+  # ---
+  # Create a spatial mesh, which is used to fit spatial fields
+  # ---
+
+  hull <- fm_extensions(
+    ONBoundary,
+    convex = c(50, 200),
+    concave = c(350, 500)
+  )
+
+  mesh_spatial <- fm_mesh_2d_inla(
+    boundary = hull,
+    max.edge = c(50, 200), # km inside and outside
+    cutoff = 10,
+    crs = proj_use
+  )
+
+  mesh_locs <- mesh_spatial$loc[,c(1,2)] %>% as.data.frame()
+
+  # ---
+  # Specify priors on spatial fields for abundance and change
+  # ---
+
+  # https://tutorials.inbo.be/tutorials/r_inla/spatial.pdf
+
+  # Controls the 'residual spatial field'.  This can be adjusted to create smoother surfaces.
+  matern_abund <- inla.spde2.pcmatern(mesh_spatial,
+                                      prior.range = c(500,0.5),#c(500, 0.01), # 500, NA # 1% chance range is smaller than 500000
+                                      prior.sigma = c(0.1,0.1),   # 10% chance sd is larger than 0.1,
+                                      constr = TRUE
+  )
+
+  # Controls the 'residual spatial field'.  This can be adjusted to create smoother surfaces.
+  matern_change <- inla.spde2.pcmatern(mesh_spatial,
+                                       prior.range = c(500,0.5), # 1% chance range is smaller than 500000
+                                       prior.sigma = c(0.1,0.1),   # 10% chance sd is larger than 0.1,
+                                       constr = TRUE
+  )
 
   # FIT MODEL WITH INLA
 
   # ---
-  # Create mesh to model effect of time since sunrise (TSS)
+  # Create mesh to model effect of time since sunrise (HSS)
   # ---
   sp_dat$Hours_Since_Sunrise <- as.numeric(sp_dat$Hours_Since_Sunrise)
-  TSS_range <- range(sp_dat$Hours_Since_Sunrise)
-  TSS_meshpoints <- seq(TSS_range[1] - 0.1, TSS_range[2] + 0.1, length.out = 11)
-  TSS_mesh1D <- INLA::inla.mesh.1d(TSS_meshpoints, boundary = "free")
-  TSS_spde <- INLA::inla.spde2.pcmatern(TSS_mesh1D,
-    prior.range = c(6, 0.1),
-    prior.sigma = c(1, 0.1)
-  ) # 10% chance sd is larger than 1
+  HSS_range <- range(sp_dat$Hours_Since_Sunrise)
+  HSS_meshpoints <- seq(HSS_range[1] - 1, HSS_range[2] + 1, length.out = 51)
+  HSS_mesh1D <- INLA::inla.mesh.1d(HSS_meshpoints, boundary = "free")
+  HSS_spde <- INLA::inla.spde2.pcmatern(HSS_mesh1D,
+                                        prior.range = c(5, 0.1),
+                                        prior.sigma = c(2, 0.1)
+  )
 
   # ---
   # Model formulas
@@ -276,23 +321,34 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
 
   model_components <- as.formula(paste0(
     '~
-            Intercept_PC(1)+
+            Intercept_OBBA2(1)+
+            Intercept_OBBA3(1)+
             range_effect(1,model="linear", mean.linear = -0.046, prec.linear = 10000)+
-            TSS(main = Hours_Since_Sunrise,model = TSS_spde) +
-            spde_coarse(main = sp::coordinates, model = matern_coarse) +',
+            HSS(main = Hours_Since_Sunrise,model = HSS_spde) +
+            spde_abund(main = sp::coordinates, model = matern_abund) +
+            spde_change(main = sp::coordinates, model = matern_change) + ',
     paste0(covariates$components, collapse = " + ")
   ))
 
-  model_formula_PC <- as.formula(paste0(
-    "count ~
-                  Intercept_PC +
+  model_formula_OBBA2 <- as.formula(paste0("count ~
+                  Intercept_OBBA2 +
                   log_QPAD_offset +
-                  TSS +
+                  HSS +
+                  kappa +
                   range_effect * distance_from_range +
-                  spde_coarse +",
-    paste0(covariates$formula, collapse = " + ")
+                  spde_abund +",
+                                           paste0(covariates$formula, collapse = " + ")
   ))
 
+  model_formula_OBBA3 <- as.formula(paste0("count ~
+                  Intercept_OBBA3 +
+                  log_QPAD_offset +
+                  HSS +
+                  kappa +
+                  range_effect * distance_from_range +
+                  spde_abund +",
+                                           paste0(covariates$formula, collapse = " + ")
+  ))
 
   # ---
   # Fit with nbinomial error
@@ -304,14 +360,23 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
   while (is.null(fit_INLA)) {
     fit_INLA <- inlabru::bru(
       components = model_components,
+
       inlabru::like(
-        family = "nbinomial",
-        formula = model_formula_PC,
+        family = error_type,
+        formula = model_formula_OBBA2,
         data = PC_sp
       ),
-      options = list(
-        control.compute = list(waic = FALSE, cpo = FALSE),
-        bru_verbose = bru_verbose
+
+      inlabru::like(
+        family = error_type,
+        formula = model_formula_OBBA3,
+        data = PC_sp
+      ),
+
+
+      options = list(inla.mode = "experimental",
+                     control.compute = list(waic = FALSE, cpo = FALSE),
+                     bru_verbose = bru_verbose
       )
     )
     if ("try-error" %in% class(fit_INLA)) fit_INLA <- NULL
@@ -399,9 +464,9 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
   start2 <- Sys.time()
   pred <- NULL
   pred <- inlabru::generate(mod,
-    as(dat, "Spatial"),
-    formula = mod_form,
-    n.samples = 1000
+                            as(dat, "Spatial"),
+                            formula = mod_form,
+                            n.samples = 1000
   )
 
   pred <- exp(pred)
@@ -641,11 +706,11 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
   )
 
   preds$CV_levs <- cut(as.data.frame(preds)[, "CV"],
-    cut_levs,
-    labels = cut_levs_labs
+                       cut_levs,
+                       labels = cut_levs_labs
   )
   raster_CV <- stars::st_rasterize(preds %>% dplyr::select(CV_levs, geometry),
-    nx = dim(raster_q50)[1], ny = dim(raster_q50)[2]
+                                   nx = dim(raster_q50)[1], ny = dim(raster_q50)[2]
   )
 
   plot_CV <- do_res_plot(
@@ -672,12 +737,12 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
   )
 
   preds$pObs_levs <- cut(as.data.frame(preds)[, "pObs_5min"],
-    cut_levs,
-    labels = cut_levs_labs
+                         cut_levs,
+                         labels = cut_levs_labs
   )
 
   raster_pObs <- stars::st_rasterize(preds %>% dplyr::select(pObs_levs, geometry),
-    nx = dim(raster_q50)[1], ny = dim(raster_q50)[2]
+                                     nx = dim(raster_q50)[1], ny = dim(raster_q50)[2]
   )
 
   plot_pObs <- do_res_plot(
@@ -775,9 +840,9 @@ do_res_plot <- function(pred_rast, title, subtitle, subsubtitle = "", samp_grid,
       panel.grid.minor = ggplot2::element_blank()
     ) +
     ggplot2::theme(axis.title.x = ggplot2::element_blank(), axis.text.x = ggplot2::element_blank(),
-          axis.ticks.x = ggplot2::element_blank()) +
+                   axis.ticks.x = ggplot2::element_blank()) +
     ggplot2::theme(axis.title.y = ggplot2::element_blank(), axis.text.y = ggplot2::element_blank(),
-          axis.ticks.y = ggplot2::element_blank()) +
+                   axis.ticks.y = ggplot2::element_blank()) +
     ggplot2::theme(plot.margin = ggplot2::unit(c(0, 0, 0, 0), "cm")) +
     ggplot2::theme(
       legend.margin = ggplot2::margin(0, 0, 0, 0),
@@ -842,7 +907,7 @@ cut_fn <- function(df = NA,
   # TODO: change this to use terra. It is faster now and easier I think
   tgt <- stars::st_as_stars(target_raster)
   tmp <- stars::st_rasterize(df %>% dplyr::select(levs, geometry),
-    nx = dim(tgt)[1], ny = dim(tgt)[2]
+                             nx = dim(tgt)[1], ny = dim(tgt)[2]
   )
 
   return(list(raster = tmp, cut_levs = cut_levs))
