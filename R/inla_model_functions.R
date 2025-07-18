@@ -437,7 +437,6 @@ predict_inla <- function(sp_code, analysis_data, mod, dat, covariates, do_crps =
 
   # either based on actual survey or assumes 5-minute unlimited distance survey
   offset_var <- str_subset(names(dat), "offset")
-
   if (offset_var != "log_QPAD_offset") {
     dat <- dat %>% rename(log_QPAD_offset = all_of(offset_var))
   }
@@ -466,6 +465,10 @@ predict_inla <- function(sp_code, analysis_data, mod, dat, covariates, do_crps =
     pred_form <- as.formula(form_str_cleaned)
     pred_formulas[[i]] <- pred_form
   }
+
+  # Set Hours since sunrise to 0 and square_atlas to 1
+  dat$Hours_Since_Sunrise <- 0
+  dat$square_atlas <- 1
 
   # ---- Predictions for OBBA3
   # Predictions are on log scale, and do not include variance components
@@ -587,11 +590,14 @@ predict_inla <- function(sp_code, analysis_data, mod, dat, covariates, do_crps =
 #' }
 
 map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_squares,
-                           bcr_poly, study_poly, target_raster,
-                           map_dir = "data/derived-data/INLA_results/maps/",
+                           bcr_poly, study_poly,
+                           map_dir = "figures/species_maps",
                            train_dat_filter = "TRUE", file_name_bit = "all") {
+
+  species_name <- analysis_data$species_to_model$english_name[which(analysis_data$species_to_model$Species_Code_BSC == sp_code)]
+
   map_file <- file.path(map_dir, paste0(
-    sp_code, "_",
+    species_name, "_",
     file_name_bit, "_q50.png"
   ))
 
@@ -599,48 +605,26 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
     dir.create(map_dir)
   }
 
-
   # Prepare data for this species
   sp_dat <- prep_sp_dat(analysis_data, sp_code, proj_use, train_dat_filter)
 
   # Summarize atlas_squares where species was detected
-  PC_detected <- sp_dat %>%
+  sp_detected <- sp_dat %>%
     sf::st_intersection(atlas_squares %>% st_transform(st_crs(sp_dat))) %>%
     as.data.frame() %>%
     group_by(square_id_) %>%
     summarize(
-      PC_detected = as.numeric(sum(count) > 0),
-      PC_mean_count = mean(count) %>% round(2)
+      sp_detected = as.numeric(sum(count) > 0),
+      sp_mean_count = mean(count) %>% round(2)
     )
-
-  # CL_detected <-sp_dat %>%
-  #   subset(Survey_Type %in% c("Breeding Bird Atlas","Linear transect")) %>%
-  #   as.data.frame() %>%
-  #   group_by(sq_id) %>%
-  #   summarize(CL_detected = as.numeric(sum(count)>0),
-  #             CL_mean_count = mean(count))
 
   atlas_squares_species <- atlas_squares %>%
     relocate(geometry, .after = last_col()) %>%
-    left_join(PC_detected, by = join_by(square_id_)) # %>% left_join(CL_detected)
+    left_join(sp_detected, by = join_by(square_id_)) # %>% left_join(CL_detected)
 
   atlas_squares_centroids <- sf::st_centroid(atlas_squares_species)
 
-  # Label for figure and ebird range limit
-
-  species_name <- analysis_data$ON_spcd$CommonName[which(analysis_data$ON_spcd$spcd == sp_code)]
-  species_label <- analysis_data$ON_spcd$Label[which(analysis_data$ON_spcd$spcd == sp_code)]
-
-  # sf object for ebird range limit (optional - not needed for plotting)
-
-  range <- NA
-  if (sp_code %in% names(analysis_data$species_ranges)) {
-    range <- analysis_data$species_ranges[[sp_code]] %>%
-      sf::st_transform(sf::st_crs(study_poly)) %>%
-      sf::st_intersection(study_poly)
-  }
-
-  # Plot median prediction
+  # ---- Plot median prediction
 
   colscale_relabund <- c(
     "#FEFEFE", "#FBF7E2", "#FCF8D0", "#EEF7C2", "#CEF2B0",
@@ -648,28 +632,26 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
   )
   colpal_relabund <- colorRampPalette(colscale_relabund)
 
+
+  # Bounds for plotting, and associated labels
+  upper_bound <- quantile(preds$pred_q50,0.99,na.rm = TRUE)
   lower_bound <- 0.01
-  upper_bound <- quantile(preds$pred_q50, 0.99, na.rm = TRUE) %>% signif(2)
-  if (lower_bound >= (upper_bound / 5)) lower_bound <- (upper_bound / 5) %>% signif(2)
+  if (lower_bound > upper_bound/10) lower_bound <- upper_bound/10
 
-  sp_cut <- cut_fn(
-    df = preds,
-    target_raster = target_raster,
-    column_name = "pred_q50",
-    lower_bound = lower_bound,
-    upper_bound = upper_bound
-  )
-
-  raster_q50 <- sp_cut$raster
+  breaks <- 10^seq(log10(lower_bound),log10(upper_bound),length.out = 5) %>% signif(2)
 
   # Median of posterior
   plot_q50 <- do_res_plot(
-    raster_q50, "Relative Abundance",
-    "Per 5-minute point count", "(Posterior Median)",
-    atlas_squares_centroids, bcr_poly,
-    colpal_relabund, species_label,
-    "levs",
-    map_file
+    preds = preds,
+    title = "Relative Abundance",
+    subtitle = "Per 5-minute point count",
+    subsubtitle = "(Posterior Median)",
+    samp_grid = atlas_squares_centroids,
+    bcr_poly = bcr_poly,
+    col_pal_fn = colpal_relabund,
+    species_label = species_name,
+    levs_nm = "levs",
+    file_nm = map_file
   )
 
   # Plot uncertainty in prediction (width of 90% CRI)
@@ -818,8 +800,45 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
 #'
 #' @returns saves the map to `file_nm`
 #'
-do_res_plot <- function(pred_rast, title, subtitle, subsubtitle = "", samp_grid, bcr_poly,
-                        col_pal_fn, species_label, levs_nm, file_nm) {
+do_res_plot <- function(preds, title, subtitle, subsubtitle = "", samp_grid, study_poly,
+                        col_pal_fn, species_label, breaks, file_nm) {
+
+  break_labels <- as.character(breaks)
+  break_labels[1] <- paste0("<",break_labels[1])
+  break_labels[length(break_labels)] <-  paste0(">",break_labels[length(break_labels)])
+
+  preds$pred_q50[preds$pred_q50 > upper_bound] <- upper_bound
+  preds$pred_q50[preds$pred_q50 < lower_bound] <- 0
+
+  res_plot <- ggplot2::ggplot() +
+    ggplot2::geom_sf(data = preds, aes(col = pred_q50), size = 0.1) +
+    ggplot2::scale_color_gradientn(
+    # name = paste0("<span style='font-size:13pt'>", title,
+    #                                              "</span><br><span style='font-size:7pt'>", subtitle,
+    #                                              "</span><br><span style='font-size:7pt'>", subsubtitle,
+    #                                              "</span>"),
+                                   colors = colpal_relabund(10),
+                                   trans = "log10",
+                                   na.value = "black",
+                                   breaks = breaks,
+                                   labels = break_labels,
+                                   limits = c(min(breaks)/1.1,max(breaks)*1.1))+
+
+    ggplot2::geom_sf(data = study_poly,colour="black",fill=NA,lwd=0.3,show.legend = F) +
+
+    ggplot2::coord_sf(clip = "off",xlim = range(as.data.frame(st_coordinates(ONBoundary))$X)) +
+    ggplot2::theme(panel.background = element_blank(),
+                   panel.grid.major = element_blank(),
+                   panel.grid.minor = element_blank(),
+                   axis.title=element_blank(), axis.text=element_blank(), axis.ticks=element_blank(),
+                   plot.margin = unit(c(0, 0, 0, 0), "cm"))+
+
+    ggplot2::annotate(geom="text",x=400,y=1800, label= paste0(species_name),lineheight = .85,hjust = 0,size=6,fontface =2) +
+    ggplot2::annotate(geom="text",x=410,y=1700, label= "OBBA3",lineheight = .85,hjust = 0,size=5,fontface =2)
+
+
+
+
   res_plot <- ggplot2::ggplot() +
     stars::geom_stars(data = pred_rast, na.rm = TRUE) +
     ggplot2::scale_fill_manual(
