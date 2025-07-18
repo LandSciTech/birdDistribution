@@ -228,13 +228,16 @@ make_mesh <- function(poly, proj_use, max.edge = c(70, 100), cutoff = 30) {
 
 fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
                      error_type = "nbinomial",
-                     prior_range_abund = c(500,0.5), prior_sigma_abund = c(0.1,0.1),
-                     prior_range_change = c(500,0.5), prior_sigma_change = c(0.1,0.1),
+                     prior_range_abund = c(500,0.5),  # 50% chance range is smaller than 500 km
+                     prior_sigma_abund = c(0.1,0.1),  # 10% chance SD is larger than 0.1
+                     prior_range_change = c(500,0.5), # 50% chance range is smaller than 500 km
+                     prior_sigma_change = c(0.1,0.1), # 10% chance SD is larger than 0.1
                      mod_dir = "data/derived-data/INLA_results/models/",
                      train_dat_filter = "TRUE", save_mod = TRUE, file_name_bit = "all",
                      bru_verbose = 4) {
 
-  message("starting model for: ", sp_code)
+  species_name <- analysis_data$species_to_model$english_name[which(analysis_data$species_to_model$Species_Code_BSC == sp_code)]
+  message("starting model for: ", species_name)
 
   model_file <- paste0(
     mod_dir, sp_code, "_",
@@ -253,10 +256,7 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
   # Prepare data for this species
   sp_dat <- prep_sp_dat(analysis_data, sp_code, proj_use, train_dat_filter)
 
-  # ---
-  # Create a spatial mesh, which is used to fit spatial fields
-  # ---
-
+  # Create spatial mesh
   hull <- fm_extensions(
     ONBoundary,
     convex = c(50, 200),
@@ -270,33 +270,21 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
     crs = proj_use
   )
 
-  mesh_locs <- mesh_spatial$loc[,c(1,2)] %>% as.data.frame()
-
-  # ---
-  # Specify priors on spatial fields for abundance and change
-  # ---
-
-  # https://tutorials.inbo.be/tutorials/r_inla/spatial.pdf
-
-  # Controls the 'residual spatial field'.  This can be adjusted to create smoother surfaces.
+  # Controls residual spatial field for abundance
   matern_abund <- inla.spde2.pcmatern(mesh_spatial,
-                                      prior.range = c(500,0.5),#c(500, 0.01), # 500, NA # 1% chance range is smaller than 500000
-                                      prior.sigma = c(0.1,0.1),   # 10% chance sd is larger than 0.1,
+                                      prior.range = prior_range_abund,
+                                      prior.sigma = prior_sigma_abund,
                                       constr = TRUE
   )
 
-  # Controls the 'residual spatial field'.  This can be adjusted to create smoother surfaces.
+  # Controls residual spatial field for change over time
   matern_change <- inla.spde2.pcmatern(mesh_spatial,
-                                       prior.range = c(500,0.5), # 1% chance range is smaller than 500000
-                                       prior.sigma = c(0.1,0.1),   # 10% chance sd is larger than 0.1,
+                                       prior.range = prior_range_change,
+                                       prior.sigma = prior_sigma_change,
                                        constr = TRUE
   )
 
-  # FIT MODEL WITH INLA
-
-  # ---
   # Create mesh to model effect of time since sunrise (HSS)
-  # ---
   sp_dat$Hours_Since_Sunrise <- as.numeric(sp_dat$Hours_Since_Sunrise)
   HSS_range <- range(sp_dat$Hours_Since_Sunrise)
   HSS_meshpoints <- seq(HSS_range[1] - 1, HSS_range[2] + 1, length.out = 51)
@@ -306,9 +294,10 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
                                         prior.sigma = c(2, 0.1)
   )
 
-  # ---
+  # iid random effect for atlas squares
+  pc_prec <- list(prior = "pcprec", param = c(0.1, 0.1))
+
   # Model formulas
-  # ---
   covariates <- covariates %>%
     mutate(
       components = paste0(
@@ -324,9 +313,10 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
             Intercept_OBBA2(1)+
             Intercept_OBBA3(1)+
             range_effect(1,model="linear", mean.linear = -0.046, prec.linear = 10000)+
+            kappa(square_atlas, model = "iid", constr = TRUE, hyper = list(prec = pc_prec)) +
             HSS(main = Hours_Since_Sunrise,model = HSS_spde) +
-            spde_abund(main = sp::coordinates, model = matern_abund) +
-            spde_change(main = sp::coordinates, model = matern_change) + ',
+            spde_abund(main = geometry, model = matern_abund) +
+            spde_change(main = geometry, model = matern_change) + ',
     paste0(covariates$components, collapse = " + ")
   ))
 
@@ -346,15 +336,11 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
                   HSS +
                   kappa +
                   range_effect * distance_from_range +
-                  spde_abund +",
+                  spde_abund + spde_change + ",
                                            paste0(covariates$formula, collapse = " + ")
   ))
 
-  # ---
-  # Fit with nbinomial error
-  # ---
-
-  PC_sp <- sp_dat %>% as("Spatial")
+  # Fit model
   start <- Sys.time()
   fit_INLA <- NULL
   while (is.null(fit_INLA)) {
@@ -364,13 +350,13 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
       inlabru::like(
         family = error_type,
         formula = model_formula_OBBA2,
-        data = PC_sp
+        data = subset(sp_dat, Atlas == "OBBA2")
       ),
 
       inlabru::like(
         family = error_type,
         formula = model_formula_OBBA3,
-        data = PC_sp
+        data = subset(sp_dat, Atlas == "OBBA3")
       ),
 
 
@@ -442,7 +428,9 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
 #'     do_crps = FALSE
 #'   )
 #' }
-predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps = TRUE) {
+
+predict_inla <- function(sp_code, analysis_data, mod, dat, covariates, do_crps = TRUE) {
+
   dat <- get_dist_to_range(dat, sp_code, analysis_data$species_ranges)
 
   dat <- get_QPAD_offsets(dat, sp_code, analysis_data$species_to_model)
@@ -450,22 +438,42 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
   # either based on actual survey or assumes 5-minute unlimited distance survey
   offset_var <- str_subset(names(dat), "offset")
 
-  covariates <- covariates %>%
-    mutate(formula = paste0("Beta", beta, "_", covariate, "*", covariate, "^", beta))
-
-  # get formula from model object
-  mod_form <- mod$bru_info$lhoods[[1]]$formula
-
   if (offset_var != "log_QPAD_offset") {
     dat <- dat %>% rename(log_QPAD_offset = all_of(offset_var))
   }
 
+  covariates <- covariates %>%
+    mutate(formula = paste0("Beta", beta, "_", covariate, "*", covariate, "^", beta))
+
+  # get formulas from model object
+  pred_formulas <- list()
+  for (i in 1:length(mod$bru_info$lhoods)){
+
+    mod_form <- mod$bru_info$lhoods[[i]]$formula
+
+    # Remove 'kappa' (square level random effect) from formulas prior to generating predictions
+    form_str <- deparse(mod_form)
+
+    # Collapse multiline formula into one string
+    form_str <- paste(form_str, collapse = " ")
+
+    # Remove "kappa" as a term (with or without a leading '+')
+    form_str_cleaned <- gsub("\\+\\s*kappa\\s*", "", form_str)
+    form_str_cleaned <- gsub("\\s*kappa\\s*\\+\\s*", "", form_str_cleaned)  # if first in RHS
+    form_str_cleaned <- gsub("\\s*kappa\\s*", "", form_str_cleaned)         # fallback
+
+    # Convert back to formula
+    pred_form <- as.formula(form_str_cleaned)
+    pred_formulas[[i]] <- pred_form
+  }
+
+  # ---- Predictions for OBBA3
   # Predictions are on log scale, and do not include variance components
   start2 <- Sys.time()
   pred <- NULL
   pred <- inlabru::generate(mod,
-                            as(dat, "Spatial"),
-                            formula = mod_form,
+                            dat,
+                            formula = pred_formulas[[2]],
                             n.samples = 1000
   )
 
@@ -494,7 +502,7 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
 
 
   # Probability of observing species in 5-minute point count
-  size <- mod$summary.hyperpar$"0.5quant"[1] # parameter of negative binomial
+  size <- mod$summary.hyperpar$"0.5quant"[2] # parameter of negative binomial
 
   # Probability of detecting species in a 5-minute point count
   # TODO: get family from INLA object so works for multiple
@@ -504,7 +512,7 @@ predict_inla <- function(dat, analysis_data, mod, sp_code, covariates, do_crps =
   end2 <- Sys.time()
   runtime_pred <- difftime(end2, start2, units = "mins") %>% round(2)
   message(paste0(sp_code, " - ", runtime_pred, " min to generate predictions"))
-  return(dat %>% mutate(species = sp_code))
+  return(dat %>% mutate(sp_code = sp_code))
 }
 
 #' Make maps of INLA model predictions
@@ -597,9 +605,9 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
 
   # Summarize atlas_squares where species was detected
   PC_detected <- sp_dat %>%
-    sf::st_intersection(atlas_squares) %>%
+    sf::st_intersection(atlas_squares %>% st_transform(st_crs(sp_dat))) %>%
     as.data.frame() %>%
-    group_by(sq_id) %>%
+    group_by(square_id_) %>%
     summarize(
       PC_detected = as.numeric(sum(count) > 0),
       PC_mean_count = mean(count) %>% round(2)
@@ -614,7 +622,7 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
 
   atlas_squares_species <- atlas_squares %>%
     relocate(geometry, .after = last_col()) %>%
-    left_join(PC_detected, by = join_by(sq_id)) # %>% left_join(CL_detected)
+    left_join(PC_detected, by = join_by(square_id_)) # %>% left_join(CL_detected)
 
   atlas_squares_centroids <- sf::st_centroid(atlas_squares_species)
 
