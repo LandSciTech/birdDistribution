@@ -258,7 +258,7 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
 
   # Create spatial mesh
   hull <- fm_extensions(
-    ONBoundary,
+    study_poly,
     convex = c(50, 200),
     concave = c(350, 500)
   )
@@ -590,7 +590,7 @@ predict_inla <- function(sp_code, analysis_data, mod, dat, covariates, do_crps =
 #' }
 
 map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_squares,
-                           bcr_poly, study_poly,
+                           study_poly,
                            map_dir = "figures/species_maps",
                            train_dat_filter = "TRUE", file_name_bit = "all") {
 
@@ -643,146 +643,150 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
   # Median of posterior
   plot_q50 <- do_res_plot(
     preds = preds,
+    species_label = species_name,
     title = "Relative Abundance",
     subtitle = "Per 5-minute point count",
     subsubtitle = "(Posterior Median)",
     samp_grid = atlas_squares_centroids,
-    bcr_poly = bcr_poly,
+    study_poly = study_poly,
     col_pal_fn = colpal_relabund,
-    species_label = species_name,
-    levs_nm = "levs",
+    breaks = breaks,
+    res = 1, # km
+    lower_bound = lower_bound,
+    upper_bound = upper_bound,
     file_nm = map_file
   )
 
-  # Plot uncertainty in prediction (width of 90% CRI)
-
-  colscale_uncertainty <- c("#FEFEFE", "#FFF4B3", "#F5D271", "#F2B647", "#EC8E00", "#CA302A")
-  colpal_uncertainty <- colorRampPalette(colscale_uncertainty)
-
-  lower_bound <- 0.01
-  upper_bound <- quantile(preds$pred_CI_width_90, 0.99, na.rm = TRUE) %>% signif(2)
-  if (lower_bound >= (upper_bound / 5)) lower_bound <- (upper_bound / 5) %>% signif(2)
-
-  raster_CI_width_90 <- cut_fn(
-    df = preds,
-    target_raster = target_raster,
-    column_name = "pred_CI_width_90",
-    lower_bound = lower_bound,
-    upper_bound = upper_bound
-  )$raster
-
-  plot_CI_width_90 <- do_res_plot(
-    raster_CI_width_90, "Relative Uncertainty",
-    "Per 5-minute point count", "Width of 90% CI",
-    atlas_squares_centroids, bcr_poly,
-    colpal_uncertainty, species_label,
-    "levs",
-    map_file %>% str_replace("_q50", "_CI_width_90")
-  )
-
-  # Plot uncertainty in prediction (coefficient of variation)
-
-  colscale_uncertainty <- c("#FEFEFE", "#FFF4B3", "#F5D271", "#F2B647", "#EC8E00", "#CA302A")
-  colpal_uncertainty <- colorRampPalette(colscale_uncertainty)
-
-  cut_levs <- c(-0.1, 0.25, 0.5, 1, 2, 5, 2000)
-  cut_levs_labs <- c(
-    "0 to 0.25",
-    "0.25 to 0.5",
-    "0.5 to 1",
-    "1 to 2",
-    "2 to 5",
-    "> 5"
-  )
-
-  preds$CV_levs <- cut(as.data.frame(preds)[, "CV"],
-                       cut_levs,
-                       labels = cut_levs_labs
-  )
-  raster_CV <- stars::st_rasterize(preds %>% dplyr::select(CV_levs, geometry),
-                                   nx = dim(raster_q50)[1], ny = dim(raster_q50)[2]
-  )
-
-  plot_CV <- do_res_plot(
-    raster_CV, "Coef. of Variation",
-    "Per 5-minute point count", "",
-    atlas_squares_centroids, bcr_poly,
-    colpal_uncertainty, species_label,
-    "CV_levs",
-    map_file %>% str_replace("_q50", "_CV")
-  )
-
-  # Plot probability of observing species in a 5-minute point count
-
-  colscale_pObs <- c("#FEFEFE", RColorBrewer::brewer.pal(5, "BuGn")[2:5])
-  colpal_pObs <- colorRampPalette(colscale_pObs)
-
-  cut_levs <- c(-0.1, 0.01, 0.05, 0.125, 0.5, 1)
-  cut_levs_labs <- c(
-    "0 to 0.01",
-    "0.01 to 0.05",
-    "0.05 to 0.125",
-    "0.125 to 0.50",
-    "0.50 to 1"
-  )
-
-  preds$pObs_levs <- cut(as.data.frame(preds)[, "pObs_5min"],
-                         cut_levs,
-                         labels = cut_levs_labs
-  )
-
-  raster_pObs <- stars::st_rasterize(preds %>% dplyr::select(pObs_levs, geometry),
-                                     nx = dim(raster_q50)[1], ny = dim(raster_q50)[2]
-  )
-
-  plot_pObs <- do_res_plot(
-    raster_pObs, "Prob. of Observation",
-    "Per 5-minute point count",
-    "(Posterior Median)",
-    atlas_squares_centroids, bcr_poly,
-    colpal_pObs, species_label,
-    "pObs_levs",
-    map_file %>% str_replace("_q50", "_PObs")
-  )
-
-  # Density estimate (per m2) - subtract detectability offset
-  species_offsets <- subset(analysis_data$species_to_model, Species_Code_BSC == sp_code)
-
-  log_offset_5min <- 0
-  if (species_offsets$offset_exists == TRUE) log_offset_5min <- species_offsets$log_offset_5min
-
-  if (log_offset_5min != 0) {
-    preds$density_per_ha_q50 <- preds$pred_q50 / exp(log_offset_5min) * 10000
-
-    colscale_relabund <- c(
-      "#FEFEFE", "#FBF7E2", "#FCF8D0", "#EEF7C2", "#CEF2B0",
-      "#94E5A0", "#51C987", "#18A065", "#008C59", "#007F53", "#006344"
-    )
-    colpal_relabund <- colorRampPalette(colscale_relabund)
-
-    lower_bound <- 0.01
-    upper_bound <- quantile(preds$density_per_ha_q50, 0.99, na.rm = TRUE) %>% signif(2)
-    if (lower_bound >= (upper_bound / 5)) lower_bound <- (upper_bound / 5) %>% signif(2)
-
-    sp_cut <- cut_fn(
-      df = preds,
-      target_raster = target_raster,
-      column_name = "density_per_ha_q50",
-      lower_bound = lower_bound,
-      upper_bound = upper_bound
-    )
-
-    raster_dens <- sp_cut$raster
-
-    # Median of posterior
-    plot_dens <- do_res_plot(
-      raster_dens, "Density", "Males per hectare",
-      "(Posterior Median)",
-      atlas_squares_centroids, bcr_poly,
-      colpal_relabund, species_label, "levs",
-      map_file %>% str_replace("_q50", "_density")
-    )
-  }
+  # # Plot uncertainty in prediction (width of 90% CRI)
+  #
+  # colscale_uncertainty <- c("#FEFEFE", "#FFF4B3", "#F5D271", "#F2B647", "#EC8E00", "#CA302A")
+  # colpal_uncertainty <- colorRampPalette(colscale_uncertainty)
+  #
+  # lower_bound <- 0.01
+  # upper_bound <- quantile(preds$pred_CI_width_90, 0.99, na.rm = TRUE) %>% signif(2)
+  # if (lower_bound >= (upper_bound / 5)) lower_bound <- (upper_bound / 5) %>% signif(2)
+  #
+  # raster_CI_width_90 <- cut_fn(
+  #   df = preds,
+  #   target_raster = target_raster,
+  #   column_name = "pred_CI_width_90",
+  #   lower_bound = lower_bound,
+  #   upper_bound = upper_bound
+  # )$raster
+  #
+  # plot_CI_width_90 <- do_res_plot(
+  #   raster_CI_width_90, "Relative Uncertainty",
+  #   "Per 5-minute point count", "Width of 90% CI",
+  #   atlas_squares_centroids, bcr_poly,
+  #   colpal_uncertainty, species_label,
+  #   "levs",
+  #   map_file %>% str_replace("_q50", "_CI_width_90")
+  # )
+  #
+  # # Plot uncertainty in prediction (coefficient of variation)
+  #
+  # colscale_uncertainty <- c("#FEFEFE", "#FFF4B3", "#F5D271", "#F2B647", "#EC8E00", "#CA302A")
+  # colpal_uncertainty <- colorRampPalette(colscale_uncertainty)
+  #
+  # cut_levs <- c(-0.1, 0.25, 0.5, 1, 2, 5, 2000)
+  # cut_levs_labs <- c(
+  #   "0 to 0.25",
+  #   "0.25 to 0.5",
+  #   "0.5 to 1",
+  #   "1 to 2",
+  #   "2 to 5",
+  #   "> 5"
+  # )
+  #
+  # preds$CV_levs <- cut(as.data.frame(preds)[, "CV"],
+  #                      cut_levs,
+  #                      labels = cut_levs_labs
+  # )
+  # raster_CV <- stars::st_rasterize(preds %>% dplyr::select(CV_levs, geometry),
+  #                                  nx = dim(raster_q50)[1], ny = dim(raster_q50)[2]
+  # )
+  #
+  # plot_CV <- do_res_plot(
+  #   raster_CV, "Coef. of Variation",
+  #   "Per 5-minute point count", "",
+  #   atlas_squares_centroids, bcr_poly,
+  #   colpal_uncertainty, species_label,
+  #   "CV_levs",
+  #   map_file %>% str_replace("_q50", "_CV")
+  # )
+  #
+  # # Plot probability of observing species in a 5-minute point count
+  #
+  # colscale_pObs <- c("#FEFEFE", RColorBrewer::brewer.pal(5, "BuGn")[2:5])
+  # colpal_pObs <- colorRampPalette(colscale_pObs)
+  #
+  # cut_levs <- c(-0.1, 0.01, 0.05, 0.125, 0.5, 1)
+  # cut_levs_labs <- c(
+  #   "0 to 0.01",
+  #   "0.01 to 0.05",
+  #   "0.05 to 0.125",
+  #   "0.125 to 0.50",
+  #   "0.50 to 1"
+  # )
+  #
+  # preds$pObs_levs <- cut(as.data.frame(preds)[, "pObs_5min"],
+  #                        cut_levs,
+  #                        labels = cut_levs_labs
+  # )
+  #
+  # raster_pObs <- stars::st_rasterize(preds %>% dplyr::select(pObs_levs, geometry),
+  #                                    nx = dim(raster_q50)[1], ny = dim(raster_q50)[2]
+  # )
+  #
+  # plot_pObs <- do_res_plot(
+  #   raster_pObs, "Prob. of Observation",
+  #   "Per 5-minute point count",
+  #   "(Posterior Median)",
+  #   atlas_squares_centroids, bcr_poly,
+  #   colpal_pObs, species_label,
+  #   "pObs_levs",
+  #   map_file %>% str_replace("_q50", "_PObs")
+  # )
+  #
+  # # Density estimate (per m2) - subtract detectability offset
+  # species_offsets <- subset(analysis_data$species_to_model, Species_Code_BSC == sp_code)
+  #
+  # log_offset_5min <- 0
+  # if (species_offsets$offset_exists == TRUE) log_offset_5min <- species_offsets$log_offset_5min
+  #
+  # if (log_offset_5min != 0) {
+  #   preds$density_per_ha_q50 <- preds$pred_q50 / exp(log_offset_5min) * 10000
+  #
+  #   colscale_relabund <- c(
+  #     #"#FEFEFE",
+  #     "#FBF7E2", "#FCF8D0", "#EEF7C2", "#CEF2B0",
+  #     "#94E5A0", "#51C987", "#18A065", "#008C59", "#007F53", "#006344"
+  #   )
+  #   colpal_relabund <- colorRampPalette(colscale_relabund)
+  #
+  #   lower_bound <- 0.01
+  #   upper_bound <- quantile(preds$density_per_ha_q50, 0.99, na.rm = TRUE) %>% signif(2)
+  #   if (lower_bound >= (upper_bound / 5)) lower_bound <- (upper_bound / 5) %>% signif(2)
+  #
+  #   sp_cut <- cut_fn(
+  #     df = preds,
+  #     target_raster = target_raster,
+  #     column_name = "density_per_ha_q50",
+  #     lower_bound = lower_bound,
+  #     upper_bound = upper_bound
+  #   )
+  #
+  #   raster_dens <- sp_cut$raster
+  #
+  #   # Median of posterior
+  #   plot_dens <- do_res_plot(
+  #     raster_dens, "Density", "Males per hectare",
+  #     "(Posterior Median)",
+  #     atlas_squares_centroids, bcr_poly,
+  #     colpal_relabund, species_label, "levs",
+  #     map_file %>% str_replace("_q50", "_density")
+  #   )
+  # }
 }
 
 #' Build INLA prediction map
@@ -800,100 +804,121 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
 #'
 #' @returns saves the map to `file_nm`
 #'
-do_res_plot <- function(preds, title, subtitle, subsubtitle = "", samp_grid, study_poly,
-                        col_pal_fn, species_label, breaks, file_nm) {
 
+do_res_plot <- function(preds, species_label, title, subtitle, subsubtitle = "",
+                        samp_grid, study_poly,
+                        col_pal_fn, breaks,
+                        res = 1, lower_bound = 0.01, upper_bound = 1,
+                        file_nm) {
+
+  # Helper to split species name if it's too long
+  wrap_species_label <- function(label, max_length = 15) {
+    if (nchar(label) <= max_length) return(label)
+
+    words <- strsplit(label, " ")[[1]]
+    if (length(words) == 1) return(label)  # Single word, don't split
+
+    # Put everything except the last word on the first line
+    paste0(paste(words[-length(words)], collapse = " "), "<br>", words[length(words)])
+  }
+
+  # Cap values at upper/lower bounds
+  preds$pred_q50 <- pmax(pmin(preds$pred_q50, upper_bound), lower_bound)
+
+  # Set legend labels
   break_labels <- as.character(breaks)
-  break_labels[1] <- paste0("<",break_labels[1])
-  break_labels[length(break_labels)] <-  paste0(">",break_labels[length(break_labels)])
+  break_labels[1] <- paste0("<", break_labels[1])
+  break_labels[length(break_labels)] <- paste0(">", break_labels[length(break_labels)])
 
-  preds$pred_q50[preds$pred_q50 > upper_bound] <- upper_bound
-  preds$pred_q50[preds$pred_q50 < lower_bound] <- 0
+  # Convert sf to SpatVector
+  v <- terra::vect(preds)
 
-  res_plot <- ggplot2::ggplot() +
-    ggplot2::geom_sf(data = preds, aes(col = pred_q50), size = 0.1) +
-    ggplot2::scale_color_gradientn(
-    # name = paste0("<span style='font-size:13pt'>", title,
-    #                                              "</span><br><span style='font-size:7pt'>", subtitle,
-    #                                              "</span><br><span style='font-size:7pt'>", subsubtitle,
-    #                                              "</span>"),
-                                   colors = colpal_relabund(10),
-                                   trans = "log10",
-                                   na.value = "black",
-                                   breaks = breaks,
-                                   labels = break_labels,
-                                   limits = c(min(breaks)/1.1,max(breaks)*1.1))+
+  # Create a raster template with desired resolution
+  r_template <- terra::rast(v, res = res)
 
-    ggplot2::geom_sf(data = study_poly,colour="black",fill=NA,lwd=0.3,show.legend = F) +
+  # Rasterize pred_q50 values using mean within each cell
+  pred_rast <- terra::rasterize(v, r_template, field = "pred_q50", fun = mean)
 
-    ggplot2::coord_sf(clip = "off",xlim = range(as.data.frame(st_coordinates(ONBoundary))$X)) +
-    ggplot2::theme(panel.background = element_blank(),
-                   panel.grid.major = element_blank(),
-                   panel.grid.minor = element_blank(),
-                   axis.title=element_blank(), axis.text=element_blank(), axis.ticks=element_blank(),
-                   plot.margin = unit(c(0, 0, 0, 0), "cm"))+
+  # Convert raster to stars for plotting
+  pred_rast_stars <- stars::st_as_stars(pred_rast)
 
-    ggplot2::annotate(geom="text",x=400,y=1800, label= paste0(species_name),lineheight = .85,hjust = 0,size=6,fontface =2) +
-    ggplot2::annotate(geom="text",x=410,y=1700, label= "OBBA3",lineheight = .85,hjust = 0,size=5,fontface =2)
-
-
-
-
-  res_plot <- ggplot2::ggplot() +
-    stars::geom_stars(data = pred_rast, na.rm = TRUE) +
-    ggplot2::scale_fill_manual(
+  res_plot <- ggplot() +
+    stars::geom_stars(data = pred_rast_stars) +
+    scale_fill_gradientn(
       name = paste0(
-        "<span style='font-size:13pt'>", title,
-        "</span><br><span style='font-size:7pt'>", subtitle,
-        "</span><br><span style='font-size:7pt'>", subsubtitle,
-        "</span>"
+        "<span style='font-size:20pt; font-weight:bold'>", wrap_species_label(species_label), "</span><br><br>",
+        "<span style='font-size:14pt'>", title, "</span><br>",
+        "<span style='font-size:7pt'>", subtitle, "</span><br>",
+        "<span style='font-size:7pt'>", subsubtitle, "</span>"
       ),
-      values = col_pal_fn(length(levels(pred_rast[[levs_nm]]))),
-      drop = FALSE, na.translate = FALSE
+      colors = col_pal_fn(10),
+      trans = "log10",
+      na.value = "transparent",
+      breaks = breaks,
+      labels = break_labels,
+      limits = c(min(breaks) / 1.1, max(breaks) * 1.1)
     ) +
-
-    # BCR boundaries
-    ggplot2::geom_sf(data = bcr_poly, fill = "transparent", col = "gray20", linewidth = 0.5) +
-
-    # Point count detections and surveyed squares
-    ggplot2::geom_sf(
-      data = subset(samp_grid, !is.na(PC_detected)),
-      ggplot2::aes(col = as.factor(PC_detected)), size = 0.5, stroke = 0, shape = 16
-    ) +
-    ggplot2::scale_colour_discrete(type = c("gray70", "black"), guide = NULL) +
-    ggplot2::theme(
-      panel.background = ggplot2::element_blank(),
-      panel.grid.major = ggplot2::element_blank(),
-      panel.grid.minor = ggplot2::element_blank()
-    ) +
-    ggplot2::theme(axis.title.x = ggplot2::element_blank(), axis.text.x = ggplot2::element_blank(),
-                   axis.ticks.x = ggplot2::element_blank()) +
-    ggplot2::theme(axis.title.y = ggplot2::element_blank(), axis.text.y = ggplot2::element_blank(),
-                   axis.ticks.y = ggplot2::element_blank()) +
-    ggplot2::theme(plot.margin = ggplot2::unit(c(0, 0, 0, 0), "cm")) +
-    ggplot2::theme(
-      legend.margin = ggplot2::margin(0, 0, 0, 0),
-      legend.box.margin = ggplot2::margin(5, 10, 5, -20),
-      # legend.title.align = 0.5, deprecated change hjust below if needed
-      legend.title = ggtext::element_markdown(lineheight = .9, hjust = 1),
-      legend.justification = c(1, 1),
-      legend.position = "inside",
-      legend.position.inside = c(0.99, 0.95)
-    ) +
-    ggplot2::theme(legend.key = ggplot2::element_rect(fill = "transparent", colour = "transparent")) +
-    ggplot2::annotate(geom = "text", x = 1700000, y = 1930000, label = paste0(species_label), lineheight = .85, hjust = 0, size = 6, fontface = 2) +
-    ggplot2::annotate(geom = "text", x = 2155000, y = 530000, label = paste0("Prepared on ", Sys.Date()), size = 2, lineheight = .75, hjust = 0, color = "gray60") +
-    ggplot2::guides(
-      fill = ggplot2::guide_legend(order = 1),
-      size = ggplot2::guide_legend(order = 2)
+    geom_sf(data = study_poly, colour = "black", fill = NA, lwd = 0.3, show.legend = FALSE) +
+    coord_sf(clip = "off") +
+    theme_void() +
+    theme(
+      plot.margin = unit(c(0, 0, 0, 0), "cm"),
+      legend.title = ggtext::element_markdown(lineheight = .9),
+      legend.position = c(1,0.7),
+      legend.justification = c(1,1),
+      legend.background = element_rect(fill = "transparent", color = "transparent")
     )
 
-  png(file_nm, width = 10, height = 6.5, units = "in", res = 1000, type = "cairo")
+  # Save and return
+  png(file_nm, width = 10, height = 8, units = "in", res = 1000, type = "cairo")
   print(res_plot)
   dev.off()
 
   return(res_plot)
 }
+
+# do_res_plot <- function(preds, title, subtitle, subsubtitle = "", samp_grid, study_poly,
+#                         col_pal_fn, species_label, breaks, file_nm) {
+#
+#   break_labels <- as.character(breaks)
+#   break_labels[1] <- paste0("<",break_labels[1])
+#   break_labels[length(break_labels)] <-  paste0(">",break_labels[length(break_labels)])
+#
+#   preds$pred_q50[preds$pred_q50 > upper_bound] <- upper_bound
+#   preds$pred_q50[preds$pred_q50 < lower_bound] <- 0
+#
+#   res_plot <- ggplot2::ggplot() +
+#     ggplot2::geom_sf(data = preds, aes(col = pred_q50), size = 0.1) +
+#     ggplot2::scale_color_gradientn(
+#       name = paste0("<span style='font-size:13pt'>", title,
+#                     "</span><br><span style='font-size:7pt'>", subtitle,
+#                     "</span><br><span style='font-size:7pt'>", subsubtitle,
+#                     "</span>"),
+#       colors = colpal_relabund(10),
+#       trans = "log10",
+#       na.value = "black",
+#       breaks = breaks,
+#       labels = break_labels,
+#       limits = c(min(breaks)/1.1,max(breaks)*1.1))+
+#
+#     ggplot2::geom_sf(data = study_poly,colour="black",fill=NA,lwd=0.3,show.legend = F) +
+#
+#     ggplot2::coord_sf(clip = "off",xlim = range(as.data.frame(st_coordinates(ONBoundary))$X)) +
+#     ggplot2::theme(panel.background = element_blank(),
+#                    panel.grid.major = element_blank(),
+#                    panel.grid.minor = element_blank(),
+#                    axis.title=element_blank(), axis.text=element_blank(), axis.ticks=element_blank(),
+#                    plot.margin = unit(c(0, 0, 0, 0), "cm"))+
+#
+#     ggplot2::annotate(geom="text",x=400,y=1800, label= paste0(species_name),lineheight = .85,hjust = 0,size=6,fontface =2) +
+#     ggplot2::annotate(geom="text",x=410,y=1700, label= "OBBA3",lineheight = .85,hjust = 0,size=5,fontface =2)
+#
+#   png(file_nm, width = 10, height = 6.5, units = "in", res = 1000, type = "cairo")
+#   print(res_plot)
+#   dev.off()
+#
+#   return(res_plot)
+# }
 
 
 #' Rasterize a series of spatial predictions (needed for plotting)
