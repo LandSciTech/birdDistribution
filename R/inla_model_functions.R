@@ -118,21 +118,23 @@ get_QPAD_offsets <- function(sp_dat, sp_code, offset_table) {
 #' prep_sp_dat(test_dat, "WTSP", sf::st_crs(test_dat$all_survey),
 #'             train_dat_filter = "Date_Time < lubridate::ymd('2003-05-01')")
 #'
-prep_sp_dat <- function(analysis_data, sp_code, proj_use, train_dat_filter = "TRUE",
-                        survey_types = c("Point_Count", "ARU_SPT", "ARU_SPM")) {
-  sp_dat <- analysis_data$all_surveys %>%
-    mutate(count = analysis_data$full_count_matrix[, sp_code]) %>%
-    # select types of data, could have multiple in one model
-    subset(Survey_Type %in% survey_types) %>%
-    sf::st_transform(proj_use) %>%
-    filter(!!rlang::parse_expr(train_dat_filter))
-
-  sp_dat <- get_dist_to_range(sp_dat, sp_code, analysis_data$species_ranges)
-
-  sp_dat <- get_QPAD_offsets(sp_dat, sp_code, analysis_data$species_to_model)
-
-  sp_dat
-}
+# prep_sp_dat <- function(analysis_data, sp_code, proj_use, train_dat_filter = "TRUE",
+#                         survey_types = c("Point_Count", "ARU")) {
+#
+#   sp_dat <- analysis_data$all_surveys %>%
+#     mutate(count = analysis_data$full_count_matrix[[sp_code]]) %>%
+#
+#     # select types of data, could have multiple in one model
+#     subset(Survey_Type %in% survey_types) %>%
+#     sf::st_transform(proj_use) %>%
+#     filter(!!rlang::parse_expr(train_dat_filter))
+#
+#   sp_dat <- get_dist_to_range(sp_dat, sp_code, analysis_data$species_ranges)
+#
+#   # sp_dat <- get_QPAD_offsets(sp_dat, sp_code, analysis_data$species_to_model)
+#
+#   sp_dat
+# }
 
 #' Create a spatial mesh, which is used to fit the residual spatial field
 #'
@@ -179,16 +181,14 @@ make_mesh <- function(poly, proj_use, max.edge = c(70, 100), cutoff = 30) {
 }
 
 
-#' Fit INLA model
-#'
-#' Fit a model of bird abundance using INLA
+#' Fit INLA model to two atlas cyles (labeled as OBBA3 and OBBA2)
 #'
 #' @param sp_code species four letter code
 #' @param analysis_data list containing analysis data, including `full_count_matrix`,
 #'  `all_surveys`, `species_ranges`, and `species_to_model`
 #' @param proj_use projection/coordinate reference system to use. Note this
 #'  should have units of kms to avoid an extremely dense mesh
-#' @param study_poly sf polygon of study area
+#' @param study_boundary sf polygon of study area
 #' @param covariates a data frame with columns covariate, model, mean, prec, beta
 #'  which is used to define the model formula.
 #' @param mod_dir directory where the model object will be saved or loaded from
@@ -219,46 +219,26 @@ make_mesh <- function(poly, proj_use, max.edge = c(70, 100), cutoff = 30) {
 #'   sp_code = test_dat$species_to_model$Species_Code_BSC[1],
 #'   analysis_data = test_dat,
 #'   proj_use = AEA_proj,
-#'   study_poly = test_area,
+#'   study_boundary = test_area,
 #'   covariates = cov_df,
 #'   mod_dir = tempdir(),
 #'   save_mod = FALSE
 #' )
 #' }
 
-fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
-                     error_type = "nbinomial",
-                     prior_range_abund = c(500,0.5),  # 50% chance range is smaller than 500 km
-                     prior_sigma_abund = c(0.1,0.1),  # 10% chance SD is larger than 0.1
-                     prior_range_change = c(500,0.5), # 50% chance range is smaller than 500 km
-                     prior_sigma_change = c(0.1,0.1), # 10% chance SD is larger than 0.1
-                     mod_dir = "data/derived-data/INLA_results/models/",
-                     train_dat_filter = "TRUE", save_mod = TRUE, file_name_bit = "all",
-                     bru_verbose = 4) {
-
-  species_name <- analysis_data$species_to_model$english_name[which(analysis_data$species_to_model$Species_Code_BSC == sp_code)]
-  message("starting model for: ", species_name)
-
-  model_file <- paste0(
-    mod_dir, sp_code, "_",
-    file_name_bit, "_mod.rds"
-  )
-
-  if (!dir.exists(mod_dir)) {
-    dir.create(mod_dir)
-  }
-
-  if (file.exists(model_file)) {
-    message("Using saved model")
-    return(readRDS(model_file))
-  }
-
-  # Prepare data for this species
-  sp_dat <- prep_sp_dat(analysis_data, sp_code, proj_use, train_dat_filter)
+fit_inla2 <- function(sp_dat,
+                      study_boundary,
+                      covariates,
+                      error_type = "poisson",
+                      prior_range_abund = c(500,0.1),  # 50% chance range is smaller than 500 km
+                      prior_sigma_abund = c(0.5,0.1),  # 10% chance SD is larger than 0.5
+                      prior_range_change = c(500,0.1), # 50% chance range is smaller than 500 km
+                      prior_sigma_change = c(0.5,0.1), # 10% chance SD is larger than 0.5
+                      bru_verbose = 4) {
 
   # Create spatial mesh
   hull <- fm_extensions(
-    study_poly,
+    study_boundary,
     convex = c(50, 200),
     concave = c(350, 500)
   )
@@ -267,7 +247,7 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
     boundary = hull,
     max.edge = c(50, 200), # km inside and outside
     cutoff = 10,
-    crs = proj_use
+    crs = st_crs(sp_dat)
   )
 
   # Controls residual spatial field for abundance
@@ -287,7 +267,7 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
   # Create mesh to model effect of time since sunrise (HSS)
   sp_dat$Hours_Since_Sunrise <- as.numeric(sp_dat$Hours_Since_Sunrise)
   HSS_range <- range(sp_dat$Hours_Since_Sunrise)
-  HSS_meshpoints <- seq(HSS_range[1] - 1, HSS_range[2] + 1, length.out = 51)
+  HSS_meshpoints <- seq(HSS_range[1] - 1, HSS_range[2] + 1, length.out = 21)
   HSS_mesh1D <- INLA::inla.mesh.1d(HSS_meshpoints, boundary = "free")
   HSS_spde <- INLA::inla.spde2.pcmatern(HSS_mesh1D,
                                         prior.range = c(5, 0.1),
@@ -312,17 +292,16 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
     '~
             Intercept_OBBA2(1)+
             Intercept_OBBA3(1)+
+            HSS(main = Hours_Since_Sunrise,model = HSS_spde) +
             range_effect(1,model="linear", mean.linear = -0.046, prec.linear = 10000)+
             kappa(square_atlas, model = "iid", constr = TRUE, hyper = list(prec = pc_prec)) +
-            HSS(main = Hours_Since_Sunrise,model = HSS_spde) +
             spde_abund(main = geometry, model = matern_abund) +
-            spde_change(main = geometry, model = matern_change) + ',
+            spde_change(main = geometry, model = matern_change) +',
     paste0(covariates$components, collapse = " + ")
   ))
 
   model_formula_OBBA2 <- as.formula(paste0("count ~
                   Intercept_OBBA2 +
-                  log_QPAD_offset +
                   HSS +
                   kappa +
                   range_effect * distance_from_range +
@@ -332,15 +311,14 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
 
   model_formula_OBBA3 <- as.formula(paste0("count ~
                   Intercept_OBBA3 +
-                  log_QPAD_offset +
                   HSS +
                   kappa +
                   range_effect * distance_from_range +
-                  spde_abund + spde_change + ",
+                  spde_abund + spde_change +",
                                            paste0(covariates$formula, collapse = " + ")
   ))
 
-  # Fit model
+  # Fit model to both atlas periods
   start <- Sys.time()
   fit_INLA <- NULL
   while (is.null(fit_INLA)) {
@@ -359,7 +337,6 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
         data = subset(sp_dat, Atlas == "OBBA3")
       ),
 
-
       options = list(inla.mode = "experimental",
                      control.compute = list(waic = FALSE, cpo = FALSE),
                      bru_verbose = bru_verbose
@@ -372,11 +349,30 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
   runtime_INLA <- difftime(end, start, units = "mins") %>% round(2)
   message(paste0(sp_code, " - ", runtime_INLA, " min to fit model"))
 
-  if (save_mod) {
-    saveRDS(fit_INLA, model_file)
-  }
-
   return(fit_INLA)
+}
+
+summarize_posterior <- function(mat, CI_probs = c(0.05, 0.95), prefix = "var") {
+  stopifnot(is.matrix(mat))
+
+  mean_vals   <- matrixStats::rowMeans2(mat, na.rm = TRUE)
+  median_vals <- matrixStats::rowMedians(mat, na.rm = TRUE)
+  sd_vals     <- matrixStats::rowSds(mat, na.rm = TRUE)
+  cv_vals     <- sd_vals / median_vals
+
+  lower_vals <- matrixStats::rowQuantiles(mat, probs = CI_probs[1], na.rm = TRUE)
+  upper_vals <- matrixStats::rowQuantiles(mat, probs = CI_probs[2], na.rm = TRUE)
+
+  out <- data.frame(
+    setNames(list(mean_vals),   paste0(prefix, "_mean")),
+    setNames(list(median_vals), paste0(prefix, "_q50")),
+    setNames(list(sd_vals),     paste0(prefix, "_sd")),
+    setNames(list(cv_vals),     paste0(prefix, "_cv_median")),
+    setNames(list(lower_vals),  paste0(prefix, "_lower")),
+    setNames(list(upper_vals),  paste0(prefix, "_upper"))
+  )
+
+  return(out)
 }
 
 #' Use a fit INLA model to generate predictions
@@ -413,7 +409,7 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
 #'     sp_code = test_dat$species_to_model$Species_Code_BSC[1],
 #'     analysis_data = test_dat,
 #'     proj_use = AEA_proj,
-#'     study_poly = test_area,
+#'     study_boundary = test_area,
 #'     covariates = cov_df,
 #'     mod_dir = tempdir(),
 #'     save_mod = FALSE
@@ -429,93 +425,34 @@ fit_inla <- function(sp_code, analysis_data, proj_use, study_poly, covariates,
 #'   )
 #' }
 
-predict_inla <- function(sp_code, analysis_data, mod, dat, covariates, do_crps = TRUE) {
+predict_inla <- function(mod, grid, pred_formula) {
 
-  dat <- get_dist_to_range(dat, sp_code, analysis_data$species_ranges)
+  start <- Sys.time()
 
-  dat <- get_QPAD_offsets(dat, sp_code, analysis_data$species_to_model)
-
-  # either based on actual survey or assumes 5-minute unlimited distance survey
-  offset_var <- str_subset(names(dat), "offset")
-  if (offset_var != "log_QPAD_offset") {
-    dat <- dat %>% rename(log_QPAD_offset = all_of(offset_var))
-  }
-
-  covariates <- covariates %>%
-    mutate(formula = paste0("Beta", beta, "_", covariate, "*", covariate, "^", beta))
-
-  # get formulas from model object
-  pred_formulas <- list()
-  for (i in 1:length(mod$bru_info$lhoods)){
-
-    mod_form <- mod$bru_info$lhoods[[i]]$formula
-
-    # Remove 'kappa' (square level random effect) from formulas prior to generating predictions
-    form_str <- deparse(mod_form)
-
-    # Collapse multiline formula into one string
-    form_str <- paste(form_str, collapse = " ")
-
-    # Remove "kappa" as a term (with or without a leading '+')
-    form_str_cleaned <- gsub("\\+\\s*kappa\\s*", "", form_str)
-    form_str_cleaned <- gsub("\\s*kappa\\s*\\+\\s*", "", form_str_cleaned)  # if first in RHS
-    form_str_cleaned <- gsub("\\s*kappa\\s*", "", form_str_cleaned)         # fallback
-
-    # Convert back to formula
-    pred_form <- as.formula(form_str_cleaned)
-    pred_formulas[[i]] <- pred_form
-  }
-
-  # Set Hours since sunrise to 0 and square_atlas to 1
-  dat$Hours_Since_Sunrise <- 0
-  dat$square_atlas <- 1
-
-  # ---- Predictions for OBBA3
-  # Predictions are on log scale, and do not include variance components
-  start2 <- Sys.time()
-  pred <- NULL
   pred <- inlabru::generate(mod,
-                            dat,
-                            formula = pred_formulas[[2]],
-                            n.samples = 1000
+                            grid,
+                            formula = pred_formula,
+                            n.samples = 1000,
+                            seed = 123
   )
 
-  pred <- exp(pred)
+  # Reformat pred such to a named list, with prediction matrices for each object (n_grid_cells x n_samples)
+  pred_vars <- names(pred[[1]])
+  preds <- lapply(pred_vars, function(v) sapply(pred, function(x) x[[v]]))
+  names(preds) <- pred_vars
 
-  # Median and upper/lower credible intervals (90% CRI)
-  prediction_quantiles <- apply(pred, 1, function(x) quantile(x, c(0.05, 0.5, 0.95), na.rm = TRUE))
-  dat$pred_q05 <- prediction_quantiles[1, ]
-  dat$pred_q50 <- prediction_quantiles[2, ]
-  dat$pred_q95 <- prediction_quantiles[3, ]
-  dat$pred_CI_width_90 <- prediction_quantiles[3, ] - prediction_quantiles[1, ]
-  dat$CV <- apply(pred, 1, function(x) sd(x, na.rm = TRUE) / mean(x, na.rm = TRUE))
-  if (do_crps) {
-    if (is.null(dat$Obs_Index)) {
-      warning(
-        "dat does not contain a column Obs_Index so dat cannot be ",
-        "connected to full_count_matrix and crps cannot be calculated"
-      )
-    } else {
-      # CRPS requires comparison to observed value, needs full sample for prediction
-      dat$obs_count <- analysis_data$full_count_matrix[dat$Obs_Index, sp_code]
-      dat$crps <- scoringRules::crps_sample(dat$obs_count, pred)
-      dat$logs <- scoringRules::logs_sample(dat$obs_count, pred)
-    }
-  }
+  # Convert to count scale
+  preds$OBBA3 <- exp(preds$OBBA3)
+  preds$OBBA2 <- exp(preds$OBBA2)
+  preds$log_change <- log(preds$OBBA3) - log(preds$OBBA2)
+  preds$pct_change <- (exp(preds$log_change) - 1) * 100
+  preds$abs_change <- preds$OBBA3 - preds$OBBA2
 
+  end <- Sys.time()
 
-  # Probability of observing species in 5-minute point count
-  size <- mod$summary.hyperpar$"0.5quant"[2] # parameter of negative binomial
-
-  # Probability of detecting species in a 5-minute point count
-  # TODO: get family from INLA object so works for multiple
-  prob_zero_PC <- dnbinom(0, mu = prediction_quantiles[2, ], size = size)
-  dat$pObs_5min <- 1 - prob_zero_PC
-
-  end2 <- Sys.time()
-  runtime_pred <- difftime(end2, start2, units = "mins") %>% round(2)
+  runtime_pred <- difftime(end, start, units = "mins") %>% round(2)
   message(paste0(sp_code, " - ", runtime_pred, " min to generate predictions"))
-  return(dat %>% mutate(sp_code = sp_code))
+  return(posterior_list)
 }
 
 #' Make maps of INLA model predictions
@@ -529,7 +466,7 @@ predict_inla <- function(sp_code, analysis_data, mod, dat, covariates, do_crps =
 #' @param proj_use projection/coordinate reference system to use.
 #' @param atlas_squares grid of squares to show predictions and observations in.
 #' @param bcr_poly polygon of BCR boundaries to use in map.
-#' @param study_poly sf polygon of study area.
+#' @param study_boundary sf polygon of study area.
 #' @param target_raster raster with desired structure eg resolution, crs etc
 #' @param map_dir directory where the map images should be saved
 #' @param train_dat_filter a string that will be used to filter the input data,
@@ -552,7 +489,7 @@ predict_inla <- function(sp_code, analysis_data, mod, dat, covariates, do_crps =
 #'     sp_code = test_dat$species_to_model$Species_Code_BSC[1],
 #'     analysis_data = test_dat,
 #'     proj_use = AEA_proj,
-#'     study_poly = test_area,
+#'     study_boundary = test_area,
 #'     covariates = cov_df,
 #'     mod_dir = tempdir(),
 #'     save_mod = FALSE
@@ -579,7 +516,7 @@ predict_inla <- function(sp_code, analysis_data, mod, dat, covariates, do_crps =
 #'     analysis_data = test_dat,
 #'     pred,
 #'     proj_use = AEA_proj,
-#'     study_poly = test_area,
+#'     study_boundary = test_area,
 #'     atlas_squares = atl_sq %>% sf::st_transform(AEA_proj),
 #'     bcr_poly = bcr_poly,
 #'     target_raster = map_raster_out,
@@ -589,28 +526,38 @@ predict_inla <- function(sp_code, analysis_data, mod, dat, covariates, do_crps =
 #'   out_maps <- list.files(dir_use, pattern = "png$", full.names = TRUE)
 #' }
 
-map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_squares,
-                           study_poly,
-                           map_dir = "figures/species_maps",
-                           train_dat_filter = "TRUE", file_name_bit = "all") {
+map_relabund <- function(species_name,
+                         obs_dat,
+                         grid,
+                         preds_summarized,
+                         atlas_squares,
+                         study_boundary,
+                         map_dir = "figures/species_maps/",
+                         train_dat_filter = "TRUE",
+                         prefix = "OBBA3",
+                         plot_obs_data = TRUE,
+                         title = "Relative Abundance",
+                         subtitle = "Per 5-minute point count",
+                         upper_bound = 1,
+                         lower_bound = 0.01,
+                         res = 1.1) {
 
-  species_name <- analysis_data$species_to_model$english_name[which(analysis_data$species_to_model$Species_Code_BSC == sp_code)]
+  proj_use <- st_crs(obs_dat)
 
-  map_file <- file.path(map_dir, paste0(
-    species_name, "_",
-    file_name_bit, "_q50.png"
-  ))
+  # Helper to split species name if it's too long
+  wrap_species_label <- function(label, max_length = 15) {
+    if (nchar(label) <= max_length) return(label)
 
-  if (!dir.exists(map_dir)) {
-    dir.create(map_dir)
+    words <- strsplit(label, " ")[[1]]
+    if (length(words) == 1) return(label)  # Single word, don't split
+
+    # Put everything except the last word on the first line
+    paste0(paste(words[-length(words)], collapse = " "), "<br>", words[length(words)])
   }
 
-  # Prepare data for this species
-  sp_dat <- prep_sp_dat(analysis_data, sp_code, proj_use, train_dat_filter)
-
   # Summarize atlas_squares where species was detected
-  sp_detected <- sp_dat %>%
-    sf::st_intersection(atlas_squares %>% st_transform(st_crs(sp_dat))) %>%
+  sp_detected <- obs_dat %>%
+    sf::st_intersection(atlas_squares %>% st_transform(st_crs(obs_dat))) %>%
     as.data.frame() %>%
     group_by(square_id_) %>%
     summarize(
@@ -624,169 +571,290 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
 
   atlas_squares_centroids <- sf::st_centroid(atlas_squares_species)
 
-  # ---- Plot median prediction
+  # ---- Bind summarized predictions to grid
+  q50_col <- names(preds_summarized)[endsWith(names(preds_summarized), "_q50")]
+  grid$pred_q50 <- preds_summarized[[q50_col]]
 
-  colscale_relabund <- c(
+  CV_col <- names(preds_summarized)[endsWith(names(preds_summarized), "_cv_median")]
+  grid$pred_CV <- preds_summarized[[CV_col]]
+
+  # ---- Plot median predictions
+
+  # Bounds for plotting and associated labels
+  breaks <- 10^seq(log10(lower_bound),log10(upper_bound),length.out = 5) %>% signif(2)
+
+  # Cap values at upper/lower bounds
+  grid$pred_capped <- as.numeric(pmax(pmin(grid$pred_q50, upper_bound), lower_bound))
+
+  # Convert sf to SpatVector
+  v <- terra::vect(grid)
+
+  # Create a raster template with desired resolution
+  r_template <- terra::rast(v, res = res)
+
+  # Rasterize pred_capped values using mean within each cell
+  pred_rast <- terra::rasterize(v, r_template, field = "pred_capped", fun = mean)
+
+  # Convert raster to stars for plotting
+  pred_rast_stars <- stars::st_as_stars(pred_rast)
+
+  # Set legend labels
+  break_labels <- as.character(breaks)
+  break_labels[1] <- paste0("<", break_labels[1])
+  break_labels[length(break_labels)] <- paste0(">", break_labels[length(break_labels)])
+
+  colscale_q50 <- c(
     "#FEFEFE", "#FBF7E2", "#FCF8D0", "#EEF7C2", "#CEF2B0",
     "#94E5A0", "#51C987", "#18A065", "#008C59", "#007F53", "#006344"
   )
-  colpal_relabund <- colorRampPalette(colscale_relabund)
+  colpal_q50 <- colorRampPalette(colscale_q50)
 
+  q50_plot <- ggplot() +
+    stars::geom_stars(data = pred_rast_stars) +
+    scale_fill_gradientn(
+      name = paste0(
+        "<span style='font-size:20pt; font-weight:bold'>", wrap_species_label(species_name), "</span><br><br>",
+        "<span style='font-size:14pt'>", title, "</span><br>",
+        "<span style='font-size:7pt'>", subtitle, "</span><br>",
+        "<span style='font-size:7pt'>Posterior Median</span>"
+      ),
+      colors = colpal_q50(10),
+      trans = "log10",
+      na.value = "transparent",
+      breaks = breaks,
+      labels = break_labels,
+      limits = c(min(breaks) / 1.1, max(breaks) * 1.1)
+    ) +
+    geom_sf(data = atlas_squares_centroids %>% subset(!is.na(sp_mean_count)), colour = "gray50", size = 0.5, shape = 1, stroke = 0.1) +
+    geom_sf(data = atlas_squares_centroids %>% subset(sp_mean_count>0), colour = "black", size = 0.5, shape = 1, stroke = 0.2) +
+    geom_sf(data = study_boundary, colour = "black", fill = NA, lwd = 0.3, show.legend = FALSE) +
+    coord_sf(clip = "off") +
+    theme_void() +
+    theme(
+      plot.margin = unit(c(0, 0, 0, 0), "cm"),
+      legend.title = ggtext::element_markdown(lineheight = .9),
+      legend.position = c(1,0.9),
+      legend.justification = c(1,1),
+      legend.background = element_rect(fill = "transparent", color = "transparent")
+    )
 
-  # Bounds for plotting, and associated labels
-  upper_bound <- quantile(preds$pred_q50,0.99,na.rm = TRUE)
-  lower_bound <- 0.01
-  if (lower_bound > upper_bound/10) lower_bound <- upper_bound/10
+  png(paste0(map_dir,"/",species_name,"_",prefix,"_relabund_q50.png"), width = 10, height = 8, units = "in", res = 1000, type = "cairo")
+  print(q50_plot)
+  dev.off()
 
-  breaks <- 10^seq(log10(lower_bound),log10(upper_bound),length.out = 5) %>% signif(2)
+  # ---- Plot uncertainty in predictions (width of 90% CRI)
 
-  # Median of posterior
-  plot_q50 <- do_res_plot(
-    preds = preds,
-    species_label = species_name,
-    title = "Relative Abundance",
-    subtitle = "Per 5-minute point count",
-    subsubtitle = "(Posterior Median)",
-    samp_grid = atlas_squares_centroids,
-    study_poly = study_poly,
-    col_pal_fn = colpal_relabund,
-    breaks = breaks,
-    res = 1, # km
-    lower_bound = lower_bound,
-    upper_bound = upper_bound,
-    file_nm = map_file
-  )
+  colscale_uncertainty <- c("#FEFEFE", "#FFF4B3", "#F5D271", "#F2B647", "#EC8E00", "#CA302A")
+  colpal_uncertainty <- colorRampPalette(colscale_uncertainty)
 
-  # # Plot uncertainty in prediction (width of 90% CRI)
+  # Cap values at upper/lower bounds
+  grid$pred_capped <- as.numeric(pmax(pmin(grid$pred_CV, 1), 0))
+
+  # Convert sf to SpatVector
+  v <- terra::vect(grid)
+
+  # Create a raster template with desired resolution
+  r_template <- terra::rast(v, res = res)
+
+  # Rasterize pred_capped values using mean within each cell
+  pred_rast <- terra::rasterize(v, r_template, field = "pred_capped", fun = mean)
+
+  # Convert raster to stars for plotting
+  pred_rast_stars <- stars::st_as_stars(pred_rast)
+
+  # Set legend labels/breaks
+  breaks <- seq(0,1,length.out = 5) %>% signif(2)
+  break_labels <- as.character(breaks)
+  break_labels[length(break_labels)] <- paste0(">", break_labels[length(break_labels)])
+
+  CV_plot <- ggplot() +
+    stars::geom_stars(data = pred_rast_stars) +
+    scale_fill_gradientn(
+      name = paste0(
+        "<span style='font-size:20pt; font-weight:bold'>", wrap_species_label(species_name), "</span><br><br>",
+        "<span style='font-size:14pt'>", title, "</span><br>",
+        "<span style='font-size:7pt'>", subtitle, "</span><br>",
+        "<span style='font-size:7pt'>Width of 90% CRI</span>"
+      ),
+      colors = colpal_uncertainty(11),
+      na.value = "transparent",
+      breaks = breaks,
+      labels = break_labels,
+      limits = c(min(breaks) / 1.1, max(breaks) * 1.1)
+    ) +
+    geom_sf(data = atlas_squares_centroids %>% subset(!is.na(sp_mean_count)), colour = "gray50", size = 0.5, shape = 1, stroke = 0.1) +
+    geom_sf(data = atlas_squares_centroids %>% subset(sp_mean_count>0), colour = "black", size = 0.5, shape = 1, stroke = 0.2) +
+    geom_sf(data = study_boundary, colour = "black", fill = NA, lwd = 0.3, show.legend = FALSE) +
+    coord_sf(clip = "off") +
+    theme_void() +
+    theme(
+      plot.margin = unit(c(0, 0, 0, 0), "cm"),
+      legend.title = ggtext::element_markdown(lineheight = .9),
+      legend.position = c(1,0.9),
+      legend.justification = c(1,1),
+      legend.background = element_rect(fill = "transparent", color = "transparent")
+    )
+
+  png(paste0(map_dir,"/",species_name,"_",prefix,"_relabund_CV.png"), width = 10, height = 8, units = "in", res = 1000, type = "cairo")
+  print(CV_plot)
+  dev.off()
+
+}
+
+map_change <- function(species_name,
+                       grid,
+                       preds_summarized,
+                       study_boundary,
+                       map_dir = "figures/species_maps/",
+                       upper_bound = -1,
+                       lower_bound = 1,
+                       res = 1.1,
+                       change_type = "Percent") {
+
+  proj_use <- st_crs(obs_dat)
+
+  # Helper to split species name if it's too long
+  wrap_species_label <- function(label, max_length = 15) {
+    if (nchar(label) <= max_length) return(label)
+
+    words <- strsplit(label, " ")[[1]]
+    if (length(words) == 1) return(label)  # Single word, don't split
+
+    # Put everything except the last word on the first line
+    paste0(paste(words[-length(words)], collapse = " "), "<br>", words[length(words)])
+  }
+
+  # ---- Bind summarized predictions to grid
+  q50_col <- names(preds_summarized)[endsWith(names(preds_summarized), "_q50")]
+  grid$pred_q50 <- preds_summarized[[q50_col]]
+
+  CV_col <- names(preds_summarized)[endsWith(names(preds_summarized), "_cv_median")]
+  grid$pred_CV <- preds_summarized[[CV_col]]
+
+  # ---- Plot median predictions
+
+  grid$pred_capped <- as.numeric(pmax(pmin(grid$pred_q50, upper_bound), lower_bound))
+
+  # Convert sf to SpatVector
+  v <- terra::vect(grid)
+
+  # Create a raster template with desired resolution
+  r_template <- terra::rast(v, res = res)
+
+  # Rasterize pred_capped values using mean within each cell
+  pred_rast <- terra::rasterize(v, r_template, field = "pred_capped", fun = mean)
+
+  # Convert raster to stars for plotting
+  pred_rast_stars <- stars::st_as_stars(pred_rast)
+
+  # Bounds for plotting and associated labels
+  breaks <- seq(lower_bound,upper_bound,length.out = 7)
+
+  # Set legend labels
+  if (change_type == "Percent"){
+    break_labels <- (100 * (exp(breaks) - 1)) %>% signif(2)
+    break_labels <- paste0(break_labels,"%")
+    prefix = "pct_change"
+    title = "Percent change"
+  } else{
+    break_labels = breaks %>% signif(2)
+    prefix = "abs_change"
+    title = "Absolute change"
+  }
+  break_labels[breaks>0] <- paste0("+",break_labels[breaks>0])
+  break_labels[1] <- paste0("< ", break_labels[1])
+  break_labels[length(break_labels)] <- paste0("> ", break_labels[length(break_labels)])
+
+  colscale_q50 <- RColorBrewer::brewer.pal(11,"RdBu")
+  colpal_q50 <- colorRampPalette(colscale_q50)
+
+  q50_plot <- ggplot() +
+    stars::geom_stars(data = pred_rast_stars) +
+    scale_fill_gradientn(
+      name = paste0(
+        "<span style='font-size:20pt; font-weight:bold'>", wrap_species_label(species_name), "</span><br><br>",
+        "<span style='font-size:14pt'>", title, "</span><br>",
+        "<span style='font-size:7pt'>OBBA2 to OBBA3</span><br>",
+        "<span style='font-size:7pt'>Posterior Median</span>"
+      ),
+      colors = colpal_q50(11),
+      na.value = "transparent",
+      breaks = breaks,
+      labels = break_labels,
+      limits = c(min(breaks) * 1.1, max(breaks) * 1.1)
+    ) +
+    geom_sf(data = study_boundary, colour = "black", fill = NA, lwd = 0.3, show.legend = FALSE) +
+    coord_sf(clip = "off") +
+    theme_void() +
+    theme(
+      plot.margin = unit(c(0, 0, 0, 0), "cm"),
+      legend.title = ggtext::element_markdown(lineheight = .9),
+      legend.position = c(1,0.9),
+      legend.justification = c(1,1),
+      legend.background = element_rect(fill = "transparent", color = "transparent")
+    )
+
+  png(paste0(map_dir,"/",species_name,"_",prefix,"_q50.png"), width = 10, height = 8, units = "in", res = 1000, type = "cairo")
+  print(q50_plot)
+  dev.off()
+
+  # # ---- Plot uncertainty in predictions (width of 90% CRI)
   #
   # colscale_uncertainty <- c("#FEFEFE", "#FFF4B3", "#F5D271", "#F2B647", "#EC8E00", "#CA302A")
   # colpal_uncertainty <- colorRampPalette(colscale_uncertainty)
   #
-  # lower_bound <- 0.01
-  # upper_bound <- quantile(preds$pred_CI_width_90, 0.99, na.rm = TRUE) %>% signif(2)
-  # if (lower_bound >= (upper_bound / 5)) lower_bound <- (upper_bound / 5) %>% signif(2)
+  # # Cap values at upper/lower bounds
+  # grid$pred_capped <- as.numeric(pmax(pmin(grid$pred_CV, 1), 0))
   #
-  # raster_CI_width_90 <- cut_fn(
-  #   df = preds,
-  #   target_raster = target_raster,
-  #   column_name = "pred_CI_width_90",
-  #   lower_bound = lower_bound,
-  #   upper_bound = upper_bound
-  # )$raster
+  # # Convert sf to SpatVector
+  # v <- terra::vect(grid)
   #
-  # plot_CI_width_90 <- do_res_plot(
-  #   raster_CI_width_90, "Relative Uncertainty",
-  #   "Per 5-minute point count", "Width of 90% CI",
-  #   atlas_squares_centroids, bcr_poly,
-  #   colpal_uncertainty, species_label,
-  #   "levs",
-  #   map_file %>% str_replace("_q50", "_CI_width_90")
-  # )
+  # # Create a raster template with desired resolution
+  # r_template <- terra::rast(v, res = res)
   #
-  # # Plot uncertainty in prediction (coefficient of variation)
+  # # Rasterize pred_capped values using mean within each cell
+  # pred_rast <- terra::rasterize(v, r_template, field = "pred_capped", fun = mean)
   #
-  # colscale_uncertainty <- c("#FEFEFE", "#FFF4B3", "#F5D271", "#F2B647", "#EC8E00", "#CA302A")
-  # colpal_uncertainty <- colorRampPalette(colscale_uncertainty)
+  # # Convert raster to stars for plotting
+  # pred_rast_stars <- stars::st_as_stars(pred_rast)
   #
-  # cut_levs <- c(-0.1, 0.25, 0.5, 1, 2, 5, 2000)
-  # cut_levs_labs <- c(
-  #   "0 to 0.25",
-  #   "0.25 to 0.5",
-  #   "0.5 to 1",
-  #   "1 to 2",
-  #   "2 to 5",
-  #   "> 5"
-  # )
+  # # Set legend labels/breaks
+  # breaks <- seq(0,1,length.out = 5) %>% signif(2)
+  # break_labels <- as.character(breaks)
+  # break_labels[length(break_labels)] <- paste0(">", break_labels[length(break_labels)])
   #
-  # preds$CV_levs <- cut(as.data.frame(preds)[, "CV"],
-  #                      cut_levs,
-  #                      labels = cut_levs_labs
-  # )
-  # raster_CV <- stars::st_rasterize(preds %>% dplyr::select(CV_levs, geometry),
-  #                                  nx = dim(raster_q50)[1], ny = dim(raster_q50)[2]
-  # )
-  #
-  # plot_CV <- do_res_plot(
-  #   raster_CV, "Coef. of Variation",
-  #   "Per 5-minute point count", "",
-  #   atlas_squares_centroids, bcr_poly,
-  #   colpal_uncertainty, species_label,
-  #   "CV_levs",
-  #   map_file %>% str_replace("_q50", "_CV")
-  # )
-  #
-  # # Plot probability of observing species in a 5-minute point count
-  #
-  # colscale_pObs <- c("#FEFEFE", RColorBrewer::brewer.pal(5, "BuGn")[2:5])
-  # colpal_pObs <- colorRampPalette(colscale_pObs)
-  #
-  # cut_levs <- c(-0.1, 0.01, 0.05, 0.125, 0.5, 1)
-  # cut_levs_labs <- c(
-  #   "0 to 0.01",
-  #   "0.01 to 0.05",
-  #   "0.05 to 0.125",
-  #   "0.125 to 0.50",
-  #   "0.50 to 1"
-  # )
-  #
-  # preds$pObs_levs <- cut(as.data.frame(preds)[, "pObs_5min"],
-  #                        cut_levs,
-  #                        labels = cut_levs_labs
-  # )
-  #
-  # raster_pObs <- stars::st_rasterize(preds %>% dplyr::select(pObs_levs, geometry),
-  #                                    nx = dim(raster_q50)[1], ny = dim(raster_q50)[2]
-  # )
-  #
-  # plot_pObs <- do_res_plot(
-  #   raster_pObs, "Prob. of Observation",
-  #   "Per 5-minute point count",
-  #   "(Posterior Median)",
-  #   atlas_squares_centroids, bcr_poly,
-  #   colpal_pObs, species_label,
-  #   "pObs_levs",
-  #   map_file %>% str_replace("_q50", "_PObs")
-  # )
-  #
-  # # Density estimate (per m2) - subtract detectability offset
-  # species_offsets <- subset(analysis_data$species_to_model, Species_Code_BSC == sp_code)
-  #
-  # log_offset_5min <- 0
-  # if (species_offsets$offset_exists == TRUE) log_offset_5min <- species_offsets$log_offset_5min
-  #
-  # if (log_offset_5min != 0) {
-  #   preds$density_per_ha_q50 <- preds$pred_q50 / exp(log_offset_5min) * 10000
-  #
-  #   colscale_relabund <- c(
-  #     #"#FEFEFE",
-  #     "#FBF7E2", "#FCF8D0", "#EEF7C2", "#CEF2B0",
-  #     "#94E5A0", "#51C987", "#18A065", "#008C59", "#007F53", "#006344"
-  #   )
-  #   colpal_relabund <- colorRampPalette(colscale_relabund)
-  #
-  #   lower_bound <- 0.01
-  #   upper_bound <- quantile(preds$density_per_ha_q50, 0.99, na.rm = TRUE) %>% signif(2)
-  #   if (lower_bound >= (upper_bound / 5)) lower_bound <- (upper_bound / 5) %>% signif(2)
-  #
-  #   sp_cut <- cut_fn(
-  #     df = preds,
-  #     target_raster = target_raster,
-  #     column_name = "density_per_ha_q50",
-  #     lower_bound = lower_bound,
-  #     upper_bound = upper_bound
+  # CV_plot <- ggplot() +
+  #   stars::geom_stars(data = pred_rast_stars) +
+  #   scale_fill_gradientn(
+  #     name = paste0(
+  #       "<span style='font-size:20pt; font-weight:bold'>", wrap_species_label(species_name), "</span><br><br>",
+  #       "<span style='font-size:14pt'>", title, "</span><br>",
+  #       "<span style='font-size:7pt'>", subtitle, "</span><br>",
+  #       "<span style='font-size:7pt'>Width of 90% CRI</span>"
+  #     ),
+  #     colors = colpal_uncertainty(10),
+  #     na.value = "transparent",
+  #     breaks = breaks,
+  #     labels = break_labels,
+  #     limits = c(min(breaks) / 1.1, max(breaks) * 1.1)
+  #   ) +
+  #   geom_sf(data = atlas_squares_centroids %>% subset(!is.na(sp_mean_count)), colour = "gray50", size = 0.5, shape = 1, stroke = 0.1) +
+  #   geom_sf(data = atlas_squares_centroids %>% subset(sp_mean_count>0), colour = "black", size = 0.5, shape = 1, stroke = 0.2) +
+  #   geom_sf(data = study_boundary, colour = "black", fill = NA, lwd = 0.3, show.legend = FALSE) +
+  #   coord_sf(clip = "off") +
+  #   theme_void() +
+  #   theme(
+  #     plot.margin = unit(c(0, 0, 0, 0), "cm"),
+  #     legend.title = ggtext::element_markdown(lineheight = .9),
+  #     legend.position = c(1,0.9),
+  #     legend.justification = c(1,1),
+  #     legend.background = element_rect(fill = "transparent", color = "transparent")
   #   )
   #
-  #   raster_dens <- sp_cut$raster
-  #
-  #   # Median of posterior
-  #   plot_dens <- do_res_plot(
-  #     raster_dens, "Density", "Males per hectare",
-  #     "(Posterior Median)",
-  #     atlas_squares_centroids, bcr_poly,
-  #     colpal_relabund, species_label, "levs",
-  #     map_file %>% str_replace("_q50", "_density")
-  #   )
-  # }
+  # png(paste0(map_dir,"/",species_name,"_",prefix,"_relabund_CV.png"), width = 10, height = 8, units = "in", res = 1000, type = "cairo")
+  # print(CV_plot)
+  # dev.off()
+
 }
 
 #' Build INLA prediction map
@@ -805,11 +873,17 @@ map_inla_preds <- function(sp_code, analysis_data, preds, proj_use, atlas_square
 #' @returns saves the map to `file_nm`
 #'
 
-do_res_plot <- function(preds, species_label, title, subtitle, subsubtitle = "",
-                        samp_grid, study_poly,
-                        col_pal_fn, breaks,
-                        res = 1, lower_bound = 0.01, upper_bound = 1,
-                        file_nm) {
+do_res_plot <- function(preds,
+                        species_name,
+                        title,
+                        subtitle,
+                        subsubtitle = "",
+                        study_boundary,
+                        col_pal_fn,
+                        breaks,
+                        res = 1,
+                        lower_bound = 0.01,
+                        upper_bound = 1) {
 
   # Helper to split species name if it's too long
   wrap_species_label <- function(label, max_length = 15) {
@@ -823,7 +897,7 @@ do_res_plot <- function(preds, species_label, title, subtitle, subsubtitle = "",
   }
 
   # Cap values at upper/lower bounds
-  preds$pred_q50 <- pmax(pmin(preds$pred_q50, upper_bound), lower_bound)
+  preds$pred_capped <- pmax(pmin(preds$pred_q50, upper_bound), lower_bound)
 
   # Set legend labels
   break_labels <- as.character(breaks)
@@ -836,8 +910,8 @@ do_res_plot <- function(preds, species_label, title, subtitle, subsubtitle = "",
   # Create a raster template with desired resolution
   r_template <- terra::rast(v, res = res)
 
-  # Rasterize pred_q50 values using mean within each cell
-  pred_rast <- terra::rasterize(v, r_template, field = "pred_q50", fun = mean)
+  # Rasterize pred_capped values using mean within each cell
+  pred_rast <- terra::rasterize(v, r_template, field = "pred_capped", fun = mean)
 
   # Convert raster to stars for plotting
   pred_rast_stars <- stars::st_as_stars(pred_rast)
@@ -846,7 +920,7 @@ do_res_plot <- function(preds, species_label, title, subtitle, subsubtitle = "",
     stars::geom_stars(data = pred_rast_stars) +
     scale_fill_gradientn(
       name = paste0(
-        "<span style='font-size:20pt; font-weight:bold'>", wrap_species_label(species_label), "</span><br><br>",
+        "<span style='font-size:20pt; font-weight:bold'>", wrap_species_label(species_name), "</span><br><br>",
         "<span style='font-size:14pt'>", title, "</span><br>",
         "<span style='font-size:7pt'>", subtitle, "</span><br>",
         "<span style='font-size:7pt'>", subsubtitle, "</span>"
@@ -858,7 +932,7 @@ do_res_plot <- function(preds, species_label, title, subtitle, subsubtitle = "",
       labels = break_labels,
       limits = c(min(breaks) / 1.1, max(breaks) * 1.1)
     ) +
-    geom_sf(data = study_poly, colour = "black", fill = NA, lwd = 0.3, show.legend = FALSE) +
+    geom_sf(data = study_boundary, colour = "black", fill = NA, lwd = 0.3, show.legend = FALSE) +
     coord_sf(clip = "off") +
     theme_void() +
     theme(
@@ -877,7 +951,7 @@ do_res_plot <- function(preds, species_label, title, subtitle, subsubtitle = "",
   return(res_plot)
 }
 
-# do_res_plot <- function(preds, title, subtitle, subsubtitle = "", samp_grid, study_poly,
+# do_res_plot <- function(preds, title, subtitle, subsubtitle = "", samp_grid, study_boundary,
 #                         col_pal_fn, species_label, breaks, file_nm) {
 #
 #   break_labels <- as.character(breaks)
@@ -901,7 +975,7 @@ do_res_plot <- function(preds, species_label, title, subtitle, subsubtitle = "",
 #       labels = break_labels,
 #       limits = c(min(breaks)/1.1,max(breaks)*1.1))+
 #
-#     ggplot2::geom_sf(data = study_poly,colour="black",fill=NA,lwd=0.3,show.legend = F) +
+#     ggplot2::geom_sf(data = study_boundary,colour="black",fill=NA,lwd=0.3,show.legend = F) +
 #
 #     ggplot2::coord_sf(clip = "off",xlim = range(as.data.frame(st_coordinates(ONBoundary))$X)) +
 #     ggplot2::theme(panel.background = element_blank(),
@@ -994,7 +1068,7 @@ cut_fn <- function(df = NA,
 #'     sp_code = test_dat$species_to_model$Species_Code_BSC[1],
 #'     analysis_data = test_dat,
 #'     proj_use = AEA_proj,
-#'     study_poly = test_area,
+#'     study_boundary = test_area,
 #'     covariates = cov_df,
 #'     mod_dir = tempdir(),
 #'     save_mod = FALSE,
